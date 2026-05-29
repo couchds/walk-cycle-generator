@@ -88,23 +88,38 @@ def mapped_bones(settings):
     return {name for name in names if name}
 
 
-def remove_keys_in_range(action, data_paths, frame_start, frame_end):
-    """Remove keyframes from matching F-curves inside a frame range."""
+def action_fcurve_collections(action):
+    """Yield F-curve collections for legacy and layered Blender actions."""
     if not action:
         return
-    for fcurve in list(action.fcurves):
-        if fcurve.data_path not in data_paths:
-            continue
 
-        for index in range(len(fcurve.keyframe_points) - 1, -1, -1):
-            frame = fcurve.keyframe_points[index].co.x
-            if frame_start <= frame <= frame_end:
-                fcurve.keyframe_points.remove(fcurve.keyframe_points[index], fast=True)
+    if hasattr(action, "fcurves"):
+        yield action.fcurves
+        return
 
-        if len(fcurve.keyframe_points) == 0:
-            action.fcurves.remove(fcurve)
-        else:
-            fcurve.update()
+    for layer in getattr(action, "layers", []):
+        for strip in getattr(layer, "strips", []):
+            for channelbag in getattr(strip, "channelbags", []):
+                if hasattr(channelbag, "fcurves"):
+                    yield channelbag.fcurves
+
+
+def remove_keys_in_range(action, data_paths, frame_start, frame_end):
+    """Remove keyframes from matching F-curves inside a frame range."""
+    for fcurves in action_fcurve_collections(action):
+        for fcurve in list(fcurves):
+            if fcurve.data_path not in data_paths:
+                continue
+
+            for index in range(len(fcurve.keyframe_points) - 1, -1, -1):
+                frame = fcurve.keyframe_points[index].co.x
+                if frame_start <= frame <= frame_end:
+                    fcurve.keyframe_points.remove(fcurve.keyframe_points[index], fast=True)
+
+            if len(fcurve.keyframe_points) == 0:
+                fcurves.remove(fcurve)
+            else:
+                fcurve.update()
 
 
 def resolve_leg_modes(armature, settings):
@@ -149,20 +164,18 @@ def data_paths_for_cleanup(settings, mode_by_leg):
 
 def apply_interpolation_and_cycles(action, frame_start, frame_end, add_cycles, interpolation, data_paths):
     """Set interpolation and optional cycles on generated F-curves."""
-    if not action:
-        return
+    for fcurves in action_fcurve_collections(action):
+        for fcurve in fcurves:
+            if fcurve.data_path not in data_paths:
+                continue
 
-    for fcurve in action.fcurves:
-        if fcurve.data_path not in data_paths:
-            continue
+            for key in fcurve.keyframe_points:
+                if frame_start <= key.co.x <= frame_end:
+                    key.interpolation = interpolation
 
-        for key in fcurve.keyframe_points:
-            if frame_start <= key.co.x <= frame_end:
-                key.interpolation = interpolation
-
-        if add_cycles:
-            has_cycles = any(modifier.type == "CYCLES" for modifier in fcurve.modifiers)
-            if not has_cycles:
-                modifier = fcurve.modifiers.new(type="CYCLES")
-                modifier.mode_before = "REPEAT"
-                modifier.mode_after = "REPEAT"
+            if add_cycles:
+                has_cycles = any(modifier.type == "CYCLES" for modifier in fcurve.modifiers)
+                if not has_cycles:
+                    modifier = fcurve.modifiers.new(type="CYCLES")
+                    modifier.mode_before = "REPEAT"
+                    modifier.mode_after = "REPEAT"
