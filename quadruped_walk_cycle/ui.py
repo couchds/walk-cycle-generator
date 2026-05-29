@@ -17,6 +17,8 @@ class QWG_PT_panel(Panel):
         settings = context.scene.qwg_settings
         armature = active_armature(context)
 
+        layout.operator("qwg.create_quadruped_armature", icon="OUTLINER_OB_ARMATURE")
+
         if not armature:
             layout.label(text="Select an armature.")
             return

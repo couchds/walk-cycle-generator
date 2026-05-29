@@ -17,11 +17,13 @@ from .operators import (
     QWG_OT_generate_walk_cycle,
 )
 from .properties import QWG_Settings
+from .skeleton import QWG_OT_create_quadruped_armature
 from .ui import QWG_PT_panel
 
 
 CLASSES = (
     QWG_Settings,
+    QWG_OT_create_quadruped_armature,
     QWG_OT_auto_map,
     QWG_OT_generate_walk_cycle,
     QWG_OT_clear_cycle_keys,

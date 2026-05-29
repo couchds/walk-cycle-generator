@@ -12,8 +12,8 @@ A Blender add-on that generates looping walk-cycle keys for four-legged armature
 
 ## Basic Use
 
-1. Select the animal armature.
-2. Click **Auto Map Bones**.
+1. Select the animal armature, or click **Create Quadruped Armature** to make a starter rig.
+2. Click **Auto Map Bones** when using your own rig. The generated starter rig maps itself automatically.
 3. Review the mapped fields. Auto mapping is best-effort because rigs use wildly different naming conventions.
 4. Choose a gait: Walk, Trot, Pace, or Bound.
 5. Choose generation mode:
@@ -48,6 +48,20 @@ The generator assumes one local axis is forward, one is side-to-side, and one is
 
 If the motion goes sideways, backwards, or downward, change the axis settings before regenerating.
 
+## Generated Starter Armature
+
+Click **Create Quadruped Armature** to generate a simple +Y-forward, Z-up quadruped rig. The default display is **Stick**, which reads more like a rig than a blocky proxy animal. It includes:
+
+- `root`, `body`, `pelvis`, `chest`, `neck`, `head`, and tail bones
+- Four named FK leg chains such as `front_left_upper`, `front_left_lower`, and `front_left_foot`
+- Four IK targets such as `front_left_ik`
+- Four pole controls such as `front_left_pole`
+- Optional IK constraints from each lower-leg bone to its IK target
+
+The starter armature is meant as a clean animation test rig and naming template, not a production-ready anatomy rig. Use Blender's operator redo panel after creation if you want Octahedral, B-Bone, or Wire display instead.
+
+New generated rigs open in Pose Mode with the main animation controls selected. The control widgets are stored as hidden mesh objects in a `*_widgets` collection and assigned as custom bone shapes.
+
 ## Notes
 
 - **Replace Keys** removes existing location/Euler rotation keys on mapped bones only inside the selected frame range.
@@ -63,6 +77,7 @@ Blender loads the add-on from `quadruped_walk_cycle/__init__.py`, while the impl
 - `gaits.py`: gait presets and stride math
 - `bone_mapping.py`: best-effort bone-name detection
 - `rig_utils.py`: armature, axis, keyframe, and F-curve helpers
+- `skeleton.py`: starter quadruped armature generation
 - `properties.py`: Blender scene settings
 - `operators.py`: auto-map, generate, and clear operators
 - `ui.py`: QWalk sidebar panel
