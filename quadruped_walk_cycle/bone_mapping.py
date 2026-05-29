@@ -1,9 +1,11 @@
 def normalize_name(name):
+    """Lowercase a bone name and strip punctuation for fuzzy matching."""
     lowered = name.lower()
     return "".join(ch for ch in lowered if ch.isalnum())
 
 
 def leg_tokens(leg):
+    """Return name fragments that identify a quadruped leg."""
     return {
         "fl": {
             "front": ("front", "fore", "arm", "shoulder"),
@@ -29,6 +31,7 @@ def leg_tokens(leg):
 
 
 def kind_tokens(kind):
+    """Return name fragments that identify a role in the rig."""
     return {
         "ik": ("ik", "target", "ctrl", "control", "effector"),
         "upper": ("upper", "thigh", "femur", "humerus", "shoulder", "arm"),
@@ -40,6 +43,7 @@ def kind_tokens(kind):
 
 
 def score_bone_name(name, leg=None, kind=None):
+    """Score how well a bone name matches an optional leg and role."""
     raw = name.lower()
     norm = normalize_name(name)
     score = 0
@@ -69,6 +73,7 @@ def score_bone_name(name, leg=None, kind=None):
 
 
 def find_best_bone(names, leg=None, kind=None, minimum=8):
+    """Return the best matching bone name, or an empty string."""
     scored = sorted(
         ((score_bone_name(name, leg=leg, kind=kind), name) for name in names),
         key=lambda item: (item[0], -len(item[1])),

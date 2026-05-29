@@ -12,6 +12,7 @@ class QWG_PT_panel(Panel):
     bl_category = "QWalk"
 
     def draw(self, context):
+        """Draw the QWalk sidebar panel."""
         layout = self.layout
         settings = context.scene.qwg_settings
         armature = active_armature(context)
@@ -65,6 +66,7 @@ class QWG_PT_panel(Panel):
         self._draw_mapping(layout, settings, armature)
 
     def _draw_mapping(self, layout, settings, armature):
+        """Draw body, IK, and FK bone mapping controls."""
         box = layout.box()
         box.label(text="Body Bones")
         self._prop_search(box, settings, "root_bone", armature, "Root")
@@ -86,4 +88,5 @@ class QWG_PT_panel(Panel):
             self._prop_search(col, settings, foot, armature, "Foot")
 
     def _prop_search(self, layout, settings, prop_name, armature, label):
+        """Draw a bone search field for one setting."""
         layout.prop_search(settings, prop_name, armature.data, "bones", text=label)

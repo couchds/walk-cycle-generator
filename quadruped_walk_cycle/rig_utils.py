@@ -2,6 +2,7 @@ from .constants import FK_FIELDS, IK_FIELDS, LEG_ORDER
 
 
 def active_armature(context):
+    """Return the active object when it is an armature."""
     obj = context.object
     if obj and obj.type == "ARMATURE":
         return obj
@@ -9,16 +10,19 @@ def active_armature(context):
 
 
 def bone_exists(armature, name):
+    """Return whether a pose bone exists on an armature."""
     return bool(name) and armature and armature.pose and name in armature.pose.bones
 
 
 def pose_bone(armature, name):
+    """Return a pose bone by name, or None when missing."""
     if bone_exists(armature, name):
         return armature.pose.bones[name]
     return None
 
 
 def axis_items():
+    """Return Blender enum items for signed local axes."""
     return (
         ("X", "X", ""),
         ("Y", "Y", ""),
@@ -30,15 +34,18 @@ def axis_items():
 
 
 def axis_index(axis):
+    """Return the Euler/vector index for a signed axis name."""
     axis = axis.replace("NEG_", "")
     return {"X": 0, "Y": 1, "Z": 2}[axis]
 
 
 def axis_sign(axis):
+    """Return -1 for negative axes and 1 for positive axes."""
     return -1.0 if axis.startswith("NEG_") else 1.0
 
 
 def axis_offset(forward_axis, forward, side_axis, side, up_axis, up):
+    """Build an XYZ offset from forward, side, and up components."""
     values = [0.0, 0.0, 0.0]
     values[axis_index(forward_axis)] += forward * axis_sign(forward_axis)
     values[axis_index(side_axis)] += side * axis_sign(side_axis)
@@ -47,26 +54,31 @@ def axis_offset(forward_axis, forward, side_axis, side, up_axis, up):
 
 
 def rotation_offset(base, axis_name, angle):
+    """Return an Euler rotation with an added signed-axis angle."""
     result = base.copy()
     result[axis_index(axis_name)] += angle * axis_sign(axis_name)
     return result
 
 
 def ensure_euler(pose_bone):
+    """Switch a pose bone to XYZ Euler rotation when needed."""
     if pose_bone.rotation_mode in {"QUATERNION", "AXIS_ANGLE"}:
         pose_bone.rotation_mode = "XYZ"
 
 
 def keyframe_pose_bone(pose_bone, frame, channels):
+    """Insert keyframes for selected pose-bone channels."""
     for channel in channels:
         pose_bone.keyframe_insert(data_path=channel, frame=frame)
 
 
 def bone_data_path(name, channel):
+    """Return the action data path for a pose-bone channel."""
     return f'pose.bones["{name}"].{channel}'
 
 
 def mapped_bones(settings):
+    """Return all non-empty bone names referenced by the settings."""
     names = {settings.root_bone, settings.body_bone}
     for field in IK_FIELDS.values():
         names.add(getattr(settings, field))
@@ -77,6 +89,7 @@ def mapped_bones(settings):
 
 
 def remove_keys_in_range(action, data_paths, frame_start, frame_end):
+    """Remove keyframes from matching F-curves inside a frame range."""
     if not action:
         return
     for fcurve in list(action.fcurves):
@@ -95,6 +108,7 @@ def remove_keys_in_range(action, data_paths, frame_start, frame_end):
 
 
 def resolve_leg_modes(armature, settings):
+    """Choose IK or FK generation for each mapped leg."""
     result = {}
     for leg in LEG_ORDER:
         ik_bone = getattr(settings, IK_FIELDS[leg])
@@ -115,6 +129,7 @@ def resolve_leg_modes(armature, settings):
 
 
 def data_paths_for_cleanup(settings, mode_by_leg):
+    """Return action data paths touched by the current mappings."""
     data_paths = {"location", "rotation_euler"}
     for name in (settings.root_bone, settings.body_bone):
         if name:
@@ -133,6 +148,7 @@ def data_paths_for_cleanup(settings, mode_by_leg):
 
 
 def apply_interpolation_and_cycles(action, frame_start, frame_end, add_cycles, interpolation, data_paths):
+    """Set interpolation and optional cycles on generated F-curves."""
     if not action:
         return
 

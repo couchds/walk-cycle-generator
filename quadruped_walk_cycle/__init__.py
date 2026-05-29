@@ -30,12 +30,14 @@ CLASSES = (
 
 
 def register():
+    """Register Blender classes and attach add-on settings to the scene."""
     for cls in CLASSES:
         bpy.utils.register_class(cls)
     bpy.types.Scene.qwg_settings = PointerProperty(type=QWG_Settings)
 
 
 def unregister():
+    """Remove scene settings and unregister Blender classes."""
     if hasattr(bpy.types.Scene, "qwg_settings"):
         del bpy.types.Scene.qwg_settings
     for cls in reversed(CLASSES):

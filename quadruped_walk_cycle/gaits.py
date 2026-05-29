@@ -4,6 +4,8 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class Gait:
+    """Footfall timing and body-bob metadata for a quadruped gait."""
+
     label: str
     phases: dict
     duty_factor: float
@@ -39,20 +41,24 @@ GAITS = {
 
 
 def smoothstep(value):
+    """Return a clamped smooth interpolation value from 0 to 1."""
     value = max(0.0, min(1.0, value))
     return value * value * (3.0 - 2.0 * value)
 
 
 def lerp(start, end, amount):
+    """Linearly interpolate between two scalar values."""
     return start + (end - start) * amount
 
 
 def cycle_position(frame, start, end):
+    """Return the normalized looping position of a frame in a cycle."""
     duration = max(1.0, float(end - start))
     return ((float(frame) - float(start)) / duration) % 1.0
 
 
 def leg_motion(cycle_pos, phase, duty_factor, stride_length, step_height):
+    """Compute forward offset, lift, and swing state for one leg."""
     foot_phase = (cycle_pos + phase) % 1.0
     swing_fraction = max(0.05, 1.0 - duty_factor)
 

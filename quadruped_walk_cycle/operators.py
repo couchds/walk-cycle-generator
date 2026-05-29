@@ -31,9 +31,11 @@ class QWG_OT_auto_map(Operator):
 
     @classmethod
     def poll(cls, context):
+        """Enable the operator only when an armature is selected."""
         return active_armature(context) is not None
 
     def execute(self, context):
+        """Populate bone mapping fields from the selected armature."""
         armature = active_armature(context)
         settings = context.scene.qwg_settings
         names = [bone.name for bone in armature.pose.bones]
@@ -60,9 +62,11 @@ class QWG_OT_generate_walk_cycle(Operator):
 
     @classmethod
     def poll(cls, context):
+        """Enable the operator only when an armature is selected."""
         return active_armature(context) is not None
 
     def execute(self, context):
+        """Generate walk-cycle keys for the selected armature."""
         armature = active_armature(context)
         settings = context.scene.qwg_settings
 
@@ -136,6 +140,7 @@ class QWG_OT_generate_walk_cycle(Operator):
         return {"FINISHED"}
 
     def _capture_baselines(self, armature, settings):
+        """Capture current object and mapped-bone transforms."""
         baselines = {
             "object_location": armature.location.copy(),
             "object_rotation": armature.rotation_euler.copy(),
@@ -154,6 +159,7 @@ class QWG_OT_generate_walk_cycle(Operator):
         return baselines
 
     def _animate_body(self, armature, settings, gait, baselines, frame, cycle_pos):
+        """Key body bob, sway, pitch, and roll for one frame."""
         target_name = settings.body_bone or settings.root_bone
         bob = math.sin(cycle_pos * math.tau * gait.body_bobs_per_cycle) * settings.body_bob
         sway = math.sin(cycle_pos * math.tau * 2.0) * settings.body_sway
@@ -187,6 +193,7 @@ class QWG_OT_generate_walk_cycle(Operator):
         armature.keyframe_insert(data_path="rotation_euler", frame=frame)
 
     def _animate_ik_leg(self, armature, settings, baselines, leg, frame, forward, lift):
+        """Key one IK target's location for a frame."""
         bone_name = getattr(settings, IK_FIELDS[leg])
         bone = armature.pose.bones[bone_name]
         baseline = baselines["bones"][bone_name]["location"]
@@ -199,6 +206,7 @@ class QWG_OT_generate_walk_cycle(Operator):
         keyframe_pose_bone(bone, frame, ("location",))
 
     def _animate_fk_leg(self, armature, settings, baselines, leg, frame, forward, lift, is_swing):
+        """Key one FK leg chain's rotations for a frame."""
         upper_name, lower_name, foot_name = [getattr(settings, field) for field in FK_FIELDS[leg]]
         upper = armature.pose.bones[upper_name]
         lower = armature.pose.bones[lower_name]
@@ -240,9 +248,11 @@ class QWG_OT_clear_cycle_keys(Operator):
 
     @classmethod
     def poll(cls, context):
+        """Enable the operator only when an armature is selected."""
         return active_armature(context) is not None
 
     def execute(self, context):
+        """Remove mapped animation keys from the configured range."""
         armature = active_armature(context)
         settings = context.scene.qwg_settings
         mode_by_leg = resolve_leg_modes(armature, settings)
