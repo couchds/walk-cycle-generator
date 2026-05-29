@@ -149,27 +149,8 @@ def assign_bone_groups(armature_object):
         pose_bone.bone_group = control_group if pose_bone.name in control_names else deform_group
 
 
-def set_pose_bone_selected(pose_bone, selected):
-    """Set pose-bone selection when the Blender API exposes it."""
-    for target in (pose_bone, pose_bone.bone):
-        if not hasattr(target, "select"):
-            continue
-        try:
-            target.select = selected
-            return
-        except (AttributeError, TypeError):
-            continue
-
-
-def select_control_bones(armature_object):
-    """Select generated controls so the rig opens ready to pose."""
-    control_names = {"root", "body"}
-    for leg in LEG_ORDER:
-        control_names.add(STANDARD_LEG_NAMES[leg]["ik"])
-        control_names.add(STANDARD_LEG_NAMES[leg]["pole"])
-
-    for pose_bone in armature_object.pose.bones:
-        set_pose_bone_selected(pose_bone, pose_bone.name in control_names)
+def activate_body_control(armature_object):
+    """Make the body control active when Blender allows it."""
     try:
         armature_object.data.bones.active = armature_object.data.bones["body"]
     except Exception:
@@ -306,7 +287,7 @@ def create_standard_quadruped(context, name, scale=1.0, add_ik_constraints=True,
 
     assign_control_shapes(context, armature_object, scale)
     assign_bone_groups(armature_object)
-    select_control_bones(armature_object)
+    activate_body_control(armature_object)
     return armature_object
 
 

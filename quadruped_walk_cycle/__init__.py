@@ -1,6 +1,6 @@
 bl_info = {
     "name": "Quadruped Walk Cycle Generator",
-    "author": "OpenAI Codex",
+    "author": "couchds",
     "version": (0, 1, 0),
     "blender": (3, 6, 0),
     "location": "View3D > Sidebar > QWalk",
