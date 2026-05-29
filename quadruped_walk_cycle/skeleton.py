@@ -39,10 +39,100 @@ STANDARD_LEG_NAMES = {
     },
 }
 
+QUADRUPED_PROFILES = {
+    "MEDIUM": {
+        "label": "Medium Quadruped",
+        "root": {"head": (-0.26, 0.0, 0.0), "tail": (0.26, 0.0, 0.0)},
+        "body": {"head": (0.0, -0.78, 0.92), "tail": (0.0, 0.74, 1.02)},
+        "spine": [
+            ("pelvis", (0.0, -0.78, 0.88), (0.0, -0.36, 0.94)),
+            ("spine_01", (0.0, -0.36, 0.94), (0.0, 0.16, 0.99)),
+            ("chest", (0.0, 0.16, 0.99), (0.0, 0.76, 1.02)),
+        ],
+        "neck": {"head": (0.0, 0.76, 1.02), "tail": (0.0, 1.08, 1.16)},
+        "head": {"head": (0.0, 1.08, 1.16), "tail": (0.0, 1.44, 1.08)},
+        "tail": [
+            ("tail_01", (0.0, -0.78, 0.88), (0.0, -1.12, 0.94)),
+            ("tail_02", (0.0, -1.12, 0.94), (0.0, -1.48, 0.84)),
+        ],
+        "leg_width_front": 0.30,
+        "leg_width_rear": 0.34,
+        "front_leg": {
+            "anchor_parent": "chest",
+            "guide": "scapula",
+            "guide_head": (0.0, 0.56, 1.03),
+            "guide_tail": (0.0, 0.42, 0.80),
+            "upper_head": (0.0, 0.42, 0.80),
+            "upper_tail": (0.0, 0.35, 0.55),
+            "lower_tail": (0.0, 0.52, 0.18),
+            "foot_tail": (0.0, 0.74, 0.05),
+            "pole": (0.0, -0.18, 0.55),
+        },
+        "rear_leg": {
+            "anchor_parent": "pelvis",
+            "guide": "hip",
+            "guide_head": (0.0, -0.72, 0.88),
+            "guide_tail": (0.0, -0.86, 0.72),
+            "upper_head": (0.0, -0.86, 0.72),
+            "upper_tail": (0.0, -0.78, 0.48),
+            "lower_tail": (0.0, -0.58, 0.18),
+            "foot_tail": (0.0, -0.36, 0.05),
+            "pole": (0.0, -1.28, 0.50),
+        },
+        "control_scale": 1.0,
+    },
+    "HORSE": {
+        "label": "Horse",
+        "root": {"head": (-0.34, 0.0, 0.0), "tail": (0.34, 0.0, 0.0)},
+        "body": {"head": (0.0, -1.08, 1.28), "tail": (0.0, 0.98, 1.42)},
+        "spine": [
+            ("pelvis", (0.0, -1.08, 1.24), (0.0, -0.48, 1.32)),
+            ("spine_01", (0.0, -0.48, 1.32), (0.0, 0.24, 1.40)),
+            ("chest", (0.0, 0.24, 1.40), (0.0, 1.02, 1.42)),
+        ],
+        "neck": {"head": (0.0, 1.02, 1.42), "tail": (0.0, 1.46, 1.76)},
+        "head": {"head": (0.0, 1.46, 1.76), "tail": (0.0, 1.88, 1.60)},
+        "tail": [
+            ("tail_01", (0.0, -1.08, 1.24), (0.0, -1.38, 1.12)),
+            ("tail_02", (0.0, -1.38, 1.12), (0.0, -1.70, 0.96)),
+        ],
+        "leg_width_front": 0.30,
+        "leg_width_rear": 0.34,
+        "front_leg": {
+            "anchor_parent": "chest",
+            "guide": "scapula",
+            "guide_head": (0.0, 0.78, 1.40),
+            "guide_tail": (0.0, 0.56, 1.04),
+            "upper_head": (0.0, 0.56, 1.04),
+            "upper_tail": (0.0, 0.48, 0.74),
+            "lower_tail": (0.0, 0.58, 0.26),
+            "foot_tail": (0.0, 0.78, 0.06),
+            "pole": (0.0, -0.20, 0.76),
+        },
+        "rear_leg": {
+            "anchor_parent": "pelvis",
+            "guide": "hip",
+            "guide_head": (0.0, -1.00, 1.24),
+            "guide_tail": (0.0, -1.10, 0.94),
+            "upper_head": (0.0, -1.10, 0.94),
+            "upper_tail": (0.0, -0.94, 0.62),
+            "lower_tail": (0.0, -0.68, 0.24),
+            "foot_tail": (0.0, -0.42, 0.06),
+            "pole": (0.0, -1.56, 0.66),
+        },
+        "control_scale": 1.15,
+    },
+}
+
 
 def scaled(point, scale):
     """Return a Vector point multiplied by the armature scale."""
     return Vector(point) * scale
+
+
+def mirrored_point(point, x):
+    """Return a profile point with an assigned X coordinate."""
+    return (x, point[1], point[2])
 
 
 def add_edit_bone(edit_bones, name, head, tail, scale, parent=None, connected=False, deform=True):
@@ -119,16 +209,17 @@ def assign_custom_shape(pose_bone, shape, scale_xyz):
         pose_bone.custom_shape_scale = max(scale_xyz)
 
 
-def assign_control_shapes(context, armature_object, scale):
+def assign_control_shapes(context, armature_object, scale, control_scale=1.0):
     """Assign custom widgets to generated control bones."""
     shapes = make_widget_shapes(context, armature_object.name)
-    assign_custom_shape(armature_object.pose.bones["root"], shapes["root"], (0.35 * scale, 0.35 * scale, 0.35 * scale))
-    assign_custom_shape(armature_object.pose.bones["body"], shapes["body"], (0.55 * scale, 0.35 * scale, 0.55 * scale))
+    widget_scale = scale * control_scale
+    assign_custom_shape(armature_object.pose.bones["root"], shapes["root"], (0.32 * widget_scale, 0.32 * widget_scale, 0.32 * widget_scale))
+    assign_custom_shape(armature_object.pose.bones["body"], shapes["body"], (0.46 * widget_scale, 0.24 * widget_scale, 0.46 * widget_scale))
 
     for leg in LEG_ORDER:
         names = STANDARD_LEG_NAMES[leg]
-        assign_custom_shape(armature_object.pose.bones[names["ik"]], shapes["foot"], (0.22 * scale, 0.16 * scale, 0.22 * scale))
-        assign_custom_shape(armature_object.pose.bones[names["pole"]], shapes["pole"], (0.12 * scale, 0.12 * scale, 0.12 * scale))
+        assign_custom_shape(armature_object.pose.bones[names["ik"]], shapes["foot"], (0.17 * widget_scale, 0.12 * widget_scale, 0.17 * widget_scale))
+        assign_custom_shape(armature_object.pose.bones[names["pole"]], shapes["pole"], (0.09 * widget_scale, 0.09 * widget_scale, 0.09 * widget_scale))
 
 
 def assign_bone_groups(armature_object):
@@ -172,10 +263,18 @@ def apply_standard_mapping(settings):
         setattr(settings, foot, names["foot"])
 
 
-def create_standard_quadruped(context, name, scale=1.0, add_ik_constraints=True, display_type="STICK"):
+def create_standard_quadruped(
+    context,
+    name,
+    scale=1.0,
+    add_ik_constraints=True,
+    display_type="STICK",
+    profile_key="MEDIUM",
+):
     """Create and return a named quadruped armature object."""
     if context.object and context.object.mode != "OBJECT":
         bpy.ops.object.mode_set(mode="OBJECT")
+    profile = QUADRUPED_PROFILES.get(profile_key, QUADRUPED_PROFILES["MEDIUM"])
 
     armature_data = bpy.data.armatures.new(name)
     armature_object = bpy.data.objects.new(name, armature_data)
@@ -191,53 +290,87 @@ def create_standard_quadruped(context, name, scale=1.0, add_ik_constraints=True,
     bpy.ops.object.mode_set(mode="EDIT")
     bones = armature_data.edit_bones
 
-    root = add_edit_bone(bones, "root", (-0.18, 0.0, 0.0), (0.18, 0.0, 0.0), scale, deform=False)
+    root = add_edit_bone(
+        bones,
+        "root",
+        profile["root"]["head"],
+        profile["root"]["tail"],
+        scale,
+        deform=False,
+    )
     body = add_edit_bone(
         bones,
         "body",
-        (0.0, -0.55, 0.92),
-        (0.0, 0.55, 0.98),
+        profile["body"]["head"],
+        profile["body"]["tail"],
         scale,
         root,
         deform=False,
     )
-    pelvis = add_edit_bone(bones, "pelvis", (0.0, -0.72, 0.90), (0.0, -0.34, 0.92), scale, body)
-    spine_01 = add_edit_bone(bones, "spine_01", (0.0, -0.34, 0.92), (0.0, 0.18, 0.97), scale, pelvis, True)
-    chest = add_edit_bone(bones, "chest", (0.0, 0.18, 0.97), (0.0, 0.76, 0.98), scale, spine_01, True)
-    neck = add_edit_bone(bones, "neck", (0.0, 0.76, 0.98), (0.0, 1.08, 1.12), scale, chest, True)
-    add_edit_bone(bones, "head", (0.0, 1.08, 1.12), (0.0, 1.42, 1.06), scale, neck, True)
-    tail_01 = add_edit_bone(bones, "tail_01", (0.0, -0.72, 0.90), (0.0, -1.08, 0.95), scale, pelvis)
-    add_edit_bone(bones, "tail_02", (0.0, -1.08, 0.95), (0.0, -1.42, 0.84), scale, tail_01, True)
+    chain_parent = body
+    named_bones = {"root": root, "body": body}
+    for index, (bone_name, head, tail) in enumerate(profile["spine"]):
+        bone = add_edit_bone(bones, bone_name, head, tail, scale, chain_parent, connected=index > 0)
+        named_bones[bone_name] = bone
+        chain_parent = bone
 
-    leg_parents = {"fl": chest, "fr": chest, "rl": pelvis, "rr": pelvis}
+    neck = add_edit_bone(
+        bones,
+        "neck",
+        profile["neck"]["head"],
+        profile["neck"]["tail"],
+        scale,
+        named_bones["chest"],
+        connected=True,
+    )
+    named_bones["neck"] = neck
+    named_bones["head"] = add_edit_bone(
+        bones,
+        "head",
+        profile["head"]["head"],
+        profile["head"]["tail"],
+        scale,
+        neck,
+        connected=True,
+    )
+
+    tail_parent = named_bones["pelvis"]
+    for index, (bone_name, head, tail) in enumerate(profile["tail"]):
+        tail_parent = add_edit_bone(bones, bone_name, head, tail, scale, tail_parent, connected=index > 0)
+        named_bones[bone_name] = tail_parent
+
+    leg_parents = {"fl": named_bones["chest"], "fr": named_bones["chest"], "rl": named_bones["pelvis"], "rr": named_bones["pelvis"]}
     for leg in LEG_ORDER:
         names = STANDARD_LEG_NAMES[leg]
         side = 1.0 if leg.endswith("l") else -1.0
         is_front = leg.startswith("f")
-        x = side * (0.32 if is_front else 0.34)
-        y = 0.58 if is_front else -0.58
-        upper_z = 0.94 if is_front else 0.86
-        knee_y = y - 0.12 if is_front else y - 0.16
-        knee_z = 0.52 if is_front else 0.54
-        ankle_y = y + 0.02 if is_front else y + 0.10
-        ankle_z = 0.17
-        toe_y = ankle_y + 0.24
-        toe_z = 0.06
-        pole_y = y - 0.55 if is_front else y - 0.62
+        leg_profile = profile["front_leg"] if is_front else profile["rear_leg"]
+        x = side * (profile["leg_width_front"] if is_front else profile["leg_width_rear"])
+
+        guide_name = f"{names['upper'].rsplit('_', 1)[0]}_{leg_profile['guide']}"
+        guide = add_edit_bone(
+            bones,
+            guide_name,
+            mirrored_point(leg_profile["guide_head"], x),
+            mirrored_point(leg_profile["guide_tail"], x),
+            scale,
+            leg_parents[leg],
+        )
 
         upper = add_edit_bone(
             bones,
             names["upper"],
-            (x, y, upper_z),
-            (x, knee_y, knee_z),
+            mirrored_point(leg_profile["upper_head"], x),
+            mirrored_point(leg_profile["upper_tail"], x),
             scale,
-            leg_parents[leg],
+            guide,
+            True,
         )
         lower = add_edit_bone(
             bones,
             names["lower"],
-            (x, knee_y, knee_z),
-            (x, ankle_y, ankle_z),
+            mirrored_point(leg_profile["upper_tail"], x),
+            mirrored_point(leg_profile["lower_tail"], x),
             scale,
             upper,
             True,
@@ -245,8 +378,8 @@ def create_standard_quadruped(context, name, scale=1.0, add_ik_constraints=True,
         add_edit_bone(
             bones,
             names["foot"],
-            (x, ankle_y, ankle_z),
-            (x, toe_y, toe_z),
+            mirrored_point(leg_profile["lower_tail"], x),
+            mirrored_point(leg_profile["foot_tail"], x),
             scale,
             lower,
             True,
@@ -254,8 +387,8 @@ def create_standard_quadruped(context, name, scale=1.0, add_ik_constraints=True,
         add_edit_bone(
             bones,
             names["ik"],
-            (x, toe_y - 0.11, toe_z),
-            (x, toe_y + 0.11, toe_z),
+            mirrored_point((0.0, leg_profile["foot_tail"][1] - 0.11, leg_profile["foot_tail"][2]), x),
+            mirrored_point((0.0, leg_profile["foot_tail"][1] + 0.11, leg_profile["foot_tail"][2]), x),
             scale,
             root,
             deform=False,
@@ -263,8 +396,8 @@ def create_standard_quadruped(context, name, scale=1.0, add_ik_constraints=True,
         add_edit_bone(
             bones,
             names["pole"],
-            (x - 0.07 * side, pole_y, knee_z),
-            (x + 0.07 * side, pole_y, knee_z),
+            mirrored_point((0.0, leg_profile["pole"][1], leg_profile["pole"][2]), x - 0.07 * side),
+            mirrored_point((0.0, leg_profile["pole"][1], leg_profile["pole"][2]), x + 0.07 * side),
             scale,
             root,
             deform=False,
@@ -287,7 +420,7 @@ def create_standard_quadruped(context, name, scale=1.0, add_ik_constraints=True,
             constraint.chain_count = 3
             constraint.iterations = 24
 
-    assign_control_shapes(context, armature_object, scale)
+    assign_control_shapes(context, armature_object, scale, profile.get("control_scale", 1.0))
     assign_bone_groups(armature_object)
     activate_body_control(armature_object)
     return armature_object
@@ -310,6 +443,15 @@ class QWG_OT_create_quadruped_armature(Operator):
         default=1.0,
         min=0.01,
         soft_max=10.0,
+    )
+    body_profile: EnumProperty(
+        name="Profile",
+        description="Proportion template for the generated quadruped",
+        items=(
+            ("MEDIUM", "Medium Quadruped", "Dog/cat-like general quadruped proportions"),
+            ("HORSE", "Horse", "Longer body, neck, and limb proportions"),
+        ),
+        default="MEDIUM",
     )
     add_ik_constraints: BoolProperty(
         name="Add IK Constraints",
@@ -341,6 +483,7 @@ class QWG_OT_create_quadruped_armature(Operator):
             self.scale,
             self.add_ik_constraints,
             self.display_type,
+            self.body_profile,
         )
 
         if self.map_after_create:
