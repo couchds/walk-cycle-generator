@@ -812,12 +812,12 @@ def improve_hind_leg_profile(leg_profile, body_length):
     lower_tail = Vector(leg_profile["lower_tail"])
     foot_tail = Vector(leg_profile["foot_tail"])
 
-    min_joint_gap = body_length * 0.075
+    min_joint_gap = body_length * 0.025
     total_y_span = max(abs(foot_tail.y - upper_head.y), abs(lower_tail.y - upper_head.y))
     has_readable_bend = (
         abs(upper_tail.y - upper_head.y) >= min_joint_gap
         and abs(lower_tail.y - upper_tail.y) >= min_joint_gap
-        and total_y_span >= body_length * 0.18
+        and total_y_span >= body_length * 0.10
     )
     if has_readable_bend:
         return leg_profile
@@ -885,6 +885,50 @@ def clean_hind_leg_profile(anchor_point, upper_head, foot_tail, body_length, ori
     }
 
 
+def guide_leg_profile(anchor_parent, guide_name, anchor_point, upper_head, upper_tail, lower_tail, foot_tail, body_length, origin, pole_factor):
+    """Build a leg profile that preserves edited guide joint positions."""
+    pole = Vector((origin.x, upper_tail.y - body_length * pole_factor, upper_tail.z))
+    return {
+        "anchor_parent": anchor_parent,
+        "guide": guide_name,
+        "guide_head": centered_point(anchor_point, origin),
+        "guide_tail": centered_point(upper_head, origin),
+        "upper_head": centered_point(upper_head, origin),
+        "upper_tail": centered_point(upper_tail, origin),
+        "lower_tail": centered_point(lower_tail, origin),
+        "foot_tail": centered_point(foot_tail, origin),
+        "pole": centered_point(pole, origin),
+    }
+
+
+def improve_front_leg_profile(leg_profile, body_length):
+    """Add a subtle front-leg bend only when a guide is nearly straight."""
+    upper_head = Vector(leg_profile["upper_head"])
+    upper_tail = Vector(leg_profile["upper_tail"])
+    lower_tail = Vector(leg_profile["lower_tail"])
+    foot_tail = Vector(leg_profile["foot_tail"])
+
+    min_joint_gap = body_length * 0.025
+    has_readable_bend = (
+        abs(upper_tail.y - upper_head.y) >= min_joint_gap
+        or abs(lower_tail.y - upper_tail.y) >= min_joint_gap
+        or abs(foot_tail.y - lower_tail.y) >= min_joint_gap
+    )
+    if has_readable_bend:
+        return leg_profile
+
+    direction = 1.0 if foot_tail.y >= upper_head.y else -1.0
+    upper_tail.y = upper_head.y - direction * body_length * 0.025
+    lower_tail.y = upper_head.y + direction * body_length * 0.045
+    foot_tail.y = upper_head.y + direction * body_length * 0.08
+
+    result = dict(leg_profile)
+    result["upper_tail"] = tuple(upper_tail)
+    result["lower_tail"] = tuple(lower_tail)
+    result["foot_tail"] = tuple(foot_tail)
+    return result
+
+
 def build_profile_from_guides(guide, symmetrize_legs=True):
     """Build a generated rig profile from an edited QWalk guide armature."""
     pelvis_head, pelvis_tail = guide_bone_pair(guide, GUIDE_SPINE_BONES["pelvis"])
@@ -945,8 +989,32 @@ def build_profile_from_guides(guide, symmetrize_legs=True):
     label = QUADRUPED_PROFILES.get(guide.get("qwg_profile", "MEDIUM"), QUADRUPED_PROFILES["MEDIUM"])["label"]
 
     if symmetrize_legs:
-        front_leg = clean_front_leg_profile(chest_tail, front_upper_head, front_foot_tail, body_length, origin)
-        rear_leg = clean_hind_leg_profile(pelvis_head, rear_upper_head, rear_foot_tail, body_length, origin)
+        front_leg = guide_leg_profile(
+            "chest",
+            "scapula",
+            chest_tail,
+            front_upper_head,
+            front_upper_tail,
+            front_lower_tail,
+            front_foot_tail,
+            body_length,
+            origin,
+            0.22,
+        )
+        rear_leg = guide_leg_profile(
+            "pelvis",
+            "hip",
+            pelvis_head,
+            rear_upper_head,
+            rear_upper_tail,
+            rear_lower_tail,
+            rear_foot_tail,
+            body_length,
+            origin,
+            0.24,
+        )
+        front_leg = improve_front_leg_profile(front_leg, body_length)
+        rear_leg = improve_hind_leg_profile(rear_leg, body_length)
     else:
         front_leg = {
             "anchor_parent": "chest",
@@ -1410,6 +1478,7 @@ def create_standard_quadruped(
             constraint.subtarget = names["ik"]
             constraint.pole_target = armature_object
             constraint.pole_subtarget = names["pole"]
+            constraint.pole_angle = -pi / 2.0
             constraint.chain_count = 3
             constraint.iterations = 24
 

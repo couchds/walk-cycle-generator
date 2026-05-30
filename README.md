@@ -62,6 +62,7 @@ The generated rig includes:
 
 Hidden non-deforming shoulder/hip helper bones keep the limb chains parented cleanly without becoming part of the visible deformation skeleton.
 IK and pole controls are created with their bone heads on the actual target points so Blender's IK solver does not pull the neutral pose away from the fitted skeleton.
+Generated IK constraints set a neutral pole angle so Pose Mode matches the fitted rest chain instead of twisting the leg as soon as constraints are added.
 
 The starter armature is meant as a clean animation test rig and naming template, not a production-ready anatomy rig. Use Blender's operator redo panel after creation if you want a different profile or Octahedral, B-Bone, or Wire display instead.
 
@@ -79,9 +80,9 @@ Select a mesh and click **Create Fitting Guides** to create an editable QWalk gu
 
 The guide initializer still estimates the ground, main torso span, upper back surface, foot contact areas, and broad body type. Those guesses are only a starting point. The final generated armature comes from the edited guide bones, which is more reliable than trying to infer hidden shoulder, hip, knee, and ankle positions from a surface mesh alone.
 
-By default, **Generate Armature From Guides** mirrors each left/right leg pair from one clean side-profile. This avoids crossed duplicate leg chains when fitting from side view. Disable **Mirror Leg Pairs** in the operator redo panel only when you intentionally want asymmetric left/right limb placement.
+By default, **Generate Armature From Guides** mirrors each left/right leg pair from one averaged side-profile while preserving the edited guide joint positions. This avoids crossed duplicate leg chains when fitting from side view. Disable **Mirror Leg Pairs** in the operator redo panel only when you intentionally want asymmetric left/right limb placement.
 
-The sidebar button always runs with mirrored leg pairs and replacement enabled. In mirrored mode, guide landmarks define the body span, shoulder/hip placement, and hoof contact, while QWalk builds clean deterministic front and rear leg bends from those landmarks. After the rig is generated, QWalk also enforces matching side-profile coordinates on both front and rear leg pairs. The guide generator replaces older rigs generated from the same guide by default, which prevents stale `*_Rig.001` armatures from overlapping the newest rig and making the leg chains look unsymmetrical.
+The sidebar button always runs with mirrored leg pairs and replacement enabled. In mirrored mode, guide landmarks define the body span, shoulder/hip placement, hoof contact, and visible joint bends. QWalk only adds a small fallback bend when a guide chain is nearly straight. After the rig is generated, QWalk also enforces matching side-profile coordinates on both front and rear leg pairs. The guide generator replaces older rigs generated from the same guide by default, which prevents stale `*_Rig.001` armatures from overlapping the newest rig and making the leg chains look unsymmetrical.
 
 The guide armature is hidden by default after **Generate Armature From Guides** so the viewport shows the final rig cleanly. Unhide the guide object in the Outliner if you want to edit and regenerate.
 
