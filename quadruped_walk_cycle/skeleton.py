@@ -805,6 +805,86 @@ def centered_point(point, origin):
     return (0.0, point.y - origin.y, point.z - origin.z)
 
 
+def improve_hind_leg_profile(leg_profile, body_length):
+    """Add a readable hind-leg bend when guide joints are nearly vertical."""
+    upper_head = Vector(leg_profile["upper_head"])
+    upper_tail = Vector(leg_profile["upper_tail"])
+    lower_tail = Vector(leg_profile["lower_tail"])
+    foot_tail = Vector(leg_profile["foot_tail"])
+
+    min_joint_gap = body_length * 0.075
+    total_y_span = max(abs(foot_tail.y - upper_head.y), abs(lower_tail.y - upper_head.y))
+    has_readable_bend = (
+        abs(upper_tail.y - upper_head.y) >= min_joint_gap
+        and abs(lower_tail.y - upper_tail.y) >= min_joint_gap
+        and total_y_span >= body_length * 0.18
+    )
+    if has_readable_bend:
+        return leg_profile
+
+    direction = 1.0 if foot_tail.y >= upper_head.y else -1.0
+    upper_tail.y = upper_head.y + direction * body_length * 0.10
+    lower_tail.y = upper_head.y + direction * body_length * 0.30
+    if abs(foot_tail.y - upper_head.y) < body_length * 0.18:
+        foot_tail.y = upper_head.y + direction * body_length * 0.42
+
+    result = dict(leg_profile)
+    result["upper_tail"] = tuple(upper_tail)
+    result["lower_tail"] = tuple(lower_tail)
+    result["foot_tail"] = tuple(foot_tail)
+    return result
+
+
+def clean_front_leg_profile(anchor_point, upper_head, foot_tail, body_length, origin):
+    """Build a stable front-leg profile from shoulder and hoof landmarks."""
+    shoulder = Vector((origin.x, upper_head.y, upper_head.z))
+    toe = Vector((origin.x, foot_tail.y, foot_tail.z))
+    leg_height = max(shoulder.z - toe.z, body_length * 0.35)
+
+    if toe.y < shoulder.y + body_length * 0.08:
+        toe.y = shoulder.y + body_length * 0.18
+
+    elbow = Vector((origin.x, shoulder.y - body_length * 0.08, toe.z + leg_height * 0.54))
+    wrist = Vector((origin.x, toe.y - body_length * 0.10, toe.z + leg_height * 0.22))
+    pole = Vector((origin.x, shoulder.y - body_length * 0.35, toe.z + leg_height * 0.55))
+    return {
+        "anchor_parent": "chest",
+        "guide": "scapula",
+        "guide_head": centered_point(anchor_point, origin),
+        "guide_tail": centered_point(shoulder, origin),
+        "upper_head": centered_point(shoulder, origin),
+        "upper_tail": centered_point(elbow, origin),
+        "lower_tail": centered_point(wrist, origin),
+        "foot_tail": centered_point(toe, origin),
+        "pole": centered_point(pole, origin),
+    }
+
+
+def clean_hind_leg_profile(anchor_point, upper_head, foot_tail, body_length, origin):
+    """Build a stable hind-leg profile from hip and hoof landmarks."""
+    hip = Vector((origin.x, upper_head.y, upper_head.z))
+    toe = Vector((origin.x, foot_tail.y, foot_tail.z))
+    leg_height = max(hip.z - toe.z, body_length * 0.35)
+
+    if toe.y < hip.y + body_length * 0.26:
+        toe.y = hip.y + body_length * 0.36
+
+    stifle = Vector((origin.x, hip.y + body_length * 0.20, toe.z + leg_height * 0.58))
+    hock = Vector((origin.x, min(toe.y - body_length * 0.14, stifle.y - body_length * 0.08), toe.z + leg_height * 0.30))
+    pole = Vector((origin.x, hip.y - body_length * 0.32, toe.z + leg_height * 0.55))
+    return {
+        "anchor_parent": "pelvis",
+        "guide": "hip",
+        "guide_head": centered_point(anchor_point, origin),
+        "guide_tail": centered_point(hip, origin),
+        "upper_head": centered_point(hip, origin),
+        "upper_tail": centered_point(stifle, origin),
+        "lower_tail": centered_point(hock, origin),
+        "foot_tail": centered_point(toe, origin),
+        "pole": centered_point(pole, origin),
+    }
+
+
 def build_profile_from_guides(guide, symmetrize_legs=True):
     """Build a generated rig profile from an edited QWalk guide armature."""
     pelvis_head, pelvis_tail = guide_bone_pair(guide, GUIDE_SPINE_BONES["pelvis"])
@@ -864,28 +944,33 @@ def build_profile_from_guides(guide, symmetrize_legs=True):
     control_scale = max(size.z, body_length * 0.35, 0.2)
     label = QUADRUPED_PROFILES.get(guide.get("qwg_profile", "MEDIUM"), QUADRUPED_PROFILES["MEDIUM"])["label"]
 
-    front_leg = {
-        "anchor_parent": "chest",
-        "guide": "scapula",
-        "guide_head": centered(chest_tail),
-        "guide_tail": centered(front_upper_head),
-        "upper_head": centered(front_upper_head),
-        "upper_tail": centered(front_upper_tail),
-        "lower_tail": centered(front_lower_tail),
-        "foot_tail": centered(front_foot_tail),
-        "pole": centered(Vector((origin.x, front_upper_tail.y - body_length * 0.22, front_upper_tail.z))),
-    }
-    rear_leg = {
-        "anchor_parent": "pelvis",
-        "guide": "hip",
-        "guide_head": centered(pelvis_head),
-        "guide_tail": centered(rear_upper_head),
-        "upper_head": centered(rear_upper_head),
-        "upper_tail": centered(rear_upper_tail),
-        "lower_tail": centered(rear_lower_tail),
-        "foot_tail": centered(rear_foot_tail),
-        "pole": centered(Vector((origin.x, rear_upper_tail.y - body_length * 0.24, rear_upper_tail.z))),
-    }
+    if symmetrize_legs:
+        front_leg = clean_front_leg_profile(chest_tail, front_upper_head, front_foot_tail, body_length, origin)
+        rear_leg = clean_hind_leg_profile(pelvis_head, rear_upper_head, rear_foot_tail, body_length, origin)
+    else:
+        front_leg = {
+            "anchor_parent": "chest",
+            "guide": "scapula",
+            "guide_head": centered(chest_tail),
+            "guide_tail": centered(front_upper_head),
+            "upper_head": centered(front_upper_head),
+            "upper_tail": centered(front_upper_tail),
+            "lower_tail": centered(front_lower_tail),
+            "foot_tail": centered(front_foot_tail),
+            "pole": centered(Vector((origin.x, front_upper_tail.y - body_length * 0.22, front_upper_tail.z))),
+        }
+        rear_leg = {
+            "anchor_parent": "pelvis",
+            "guide": "hip",
+            "guide_head": centered(pelvis_head),
+            "guide_tail": centered(rear_upper_head),
+            "upper_head": centered(rear_upper_head),
+            "upper_tail": centered(rear_upper_tail),
+            "lower_tail": centered(rear_lower_tail),
+            "foot_tail": centered(rear_foot_tail),
+            "pole": centered(Vector((origin.x, rear_upper_tail.y - body_length * 0.24, rear_upper_tail.z))),
+        }
+        rear_leg = improve_hind_leg_profile(rear_leg, body_length)
 
     def exact_leg_profile(leg, anchor_point, pole_factor):
         """Return a per-leg profile from one edited guide chain."""
@@ -956,6 +1041,113 @@ def create_widget_object(collection, name, vertices, edges):
     obj.hide_render = True
     obj.hide_viewport = True
     return obj
+
+
+def remove_collection_objects(collection):
+    """Remove all objects stored inside a generated widget collection."""
+    for obj in list(collection.objects):
+        bpy.data.objects.remove(obj, do_unlink=True)
+
+
+def remove_previous_generated_rigs(guide, armature_name):
+    """Delete generated rigs that came from the same guide armature."""
+    targets = []
+    for obj in list(bpy.data.objects):
+        if obj.type != "ARMATURE" or obj.get("qwg_is_guide"):
+            continue
+        from_same_guide = obj.get("qwg_guides") == guide.name
+        same_name = obj.name == armature_name or obj.name.startswith(f"{armature_name}.")
+        if not from_same_guide and not same_name:
+            continue
+        targets.append(obj)
+
+    removed = 0
+    for obj in targets:
+        widget_collection = bpy.data.collections.get(f"{obj.name}_widgets")
+        if widget_collection:
+            remove_collection_objects(widget_collection)
+            bpy.data.collections.remove(widget_collection)
+        bpy.data.objects.remove(obj, do_unlink=True)
+        removed += 1
+    return removed
+
+
+def enforce_mirrored_leg_pairs(armature):
+    """Force left and right leg pairs to share matching side-profile coordinates."""
+    if bpy.context.object and bpy.context.object.mode != "OBJECT":
+        bpy.ops.object.mode_set(mode="OBJECT")
+
+    bpy.ops.object.select_all(action="DESELECT")
+    armature.select_set(True)
+    bpy.context.view_layer.objects.active = armature
+    bpy.ops.object.mode_set(mode="EDIT")
+
+    bones = armature.data.edit_bones
+    midline_samples = []
+    for name in ("body", "pelvis", "spine_01", "chest", "neck", "head"):
+        bone = bones.get(name)
+        if bone:
+            midline_samples.extend((bone.head.x, bone.tail.x))
+    midline_x = sum(midline_samples) / len(midline_samples) if midline_samples else 0.0
+
+    def mirrored_joint(left_point, right_point):
+        """Return mirrored left/right joint points and the original Y/Z error."""
+        error = max(abs(left_point.y - right_point.y), abs(left_point.z - right_point.z))
+        y = (left_point.y + right_point.y) * 0.5
+        z = (left_point.z + right_point.z) * 0.5
+        width = (abs(left_point.x - midline_x) + abs(right_point.x - midline_x)) * 0.5
+        return Vector((midline_x + width, y, z)), Vector((midline_x - width, y, z)), error
+
+    def enforce_leg_chain(left_prefix, right_prefix, helper_suffix):
+        """Mirror one connected left/right leg chain without breaking connectivity."""
+        left_helper = bones.get(f"{left_prefix}_{helper_suffix}")
+        right_helper = bones.get(f"{right_prefix}_{helper_suffix}")
+        left_upper = bones.get(f"{left_prefix}_upper")
+        right_upper = bones.get(f"{right_prefix}_upper")
+        left_lower = bones.get(f"{left_prefix}_lower")
+        right_lower = bones.get(f"{right_prefix}_lower")
+        left_foot = bones.get(f"{left_prefix}_foot")
+        right_foot = bones.get(f"{right_prefix}_foot")
+        chain = (left_helper, right_helper, left_upper, right_upper, left_lower, right_lower, left_foot, right_foot)
+        if not all(chain):
+            return 0.0
+
+        left_joints = [
+            left_helper.head.copy(),
+            left_upper.head.copy(),
+            left_upper.tail.copy(),
+            left_lower.tail.copy(),
+            left_foot.tail.copy(),
+        ]
+        right_joints = [
+            right_helper.head.copy(),
+            right_upper.head.copy(),
+            right_upper.tail.copy(),
+            right_lower.tail.copy(),
+            right_foot.tail.copy(),
+        ]
+        mirrored = [mirrored_joint(left, right) for left, right in zip(left_joints, right_joints)]
+        left_points = [item[0] for item in mirrored]
+        right_points = [item[1] for item in mirrored]
+        error = max(item[2] for item in mirrored)
+
+        left_helper.head, right_helper.head = left_points[0], right_points[0]
+        left_helper.tail, right_helper.tail = left_points[1], right_points[1]
+        left_upper.head, right_upper.head = left_points[1], right_points[1]
+        left_upper.tail, right_upper.tail = left_points[2], right_points[2]
+        left_lower.head, right_lower.head = left_points[2], right_points[2]
+        left_lower.tail, right_lower.tail = left_points[3], right_points[3]
+        left_foot.head, right_foot.head = left_points[3], right_points[3]
+        left_foot.tail, right_foot.tail = left_points[4], right_points[4]
+        return error
+
+    max_error = max(
+        enforce_leg_chain("front_left", "front_right", "scapula"),
+        enforce_leg_chain("rear_left", "rear_right", "hip"),
+    )
+
+    bpy.ops.object.mode_set(mode="POSE")
+    return max_error
 
 
 def circle_points(radius=1.0, segments=24, y_scale=1.0):
@@ -1185,8 +1377,8 @@ def create_standard_quadruped(
         add_edit_bone(
             bones,
             names["ik"],
-            (foot_point.x, foot_point.y - foot_span, foot_point.z),
-            (foot_point.x, foot_point.y + foot_span, foot_point.z),
+            foot_point,
+            (foot_point.x, foot_point.y, foot_point.z + foot_span),
             scale,
             root,
             deform=False,
@@ -1195,8 +1387,8 @@ def create_standard_quadruped(
         add_edit_bone(
             bones,
             names["pole"],
-            (pole_point.x - 0.07 * side, pole_point.y, pole_point.z),
-            (pole_point.x + 0.07 * side, pole_point.y, pole_point.z),
+            pole_point,
+            (pole_point.x + 0.14 * side, pole_point.y, pole_point.z),
             scale,
             root,
             deform=False,
@@ -1536,10 +1728,17 @@ class QWG_OT_create_armature_from_guides(Operator):
         description="Hide the guide armature after generating the final rig",
         default=True,
     )
+    replace_existing_generated: BoolProperty(
+        name="Replace Previous Rig",
+        description="Delete older QWalk rigs generated from the same guide",
+        default=True,
+        options={"SKIP_SAVE"},
+    )
     symmetrize_legs: BoolProperty(
         name="Mirror Leg Pairs",
         description="Use one clean side-profile for each left/right leg pair",
         default=True,
+        options={"SKIP_SAVE"},
     )
 
     @classmethod
@@ -1564,6 +1763,9 @@ class QWG_OT_create_armature_from_guides(Operator):
 
         profile_key = guide.get("qwg_profile", "MEDIUM")
         armature_name = self.armature_name.strip() or f"{guide.name}_Rig"
+        removed_count = 0
+        if self.replace_existing_generated:
+            removed_count = remove_previous_generated_rigs(guide, armature_name)
         armature = create_standard_quadruped(
             context,
             armature_name,
@@ -1578,6 +1780,11 @@ class QWG_OT_create_armature_from_guides(Operator):
         armature.scale = guide.scale
         armature["qwg_guides"] = guide.name
         armature["qwg_profile_requested"] = profile_key
+        armature["qwg_leg_pair_mode"] = "MIRRORED" if self.symmetrize_legs else "ASYMMETRIC"
+        mirror_error = 0.0
+        if self.symmetrize_legs:
+            mirror_error = enforce_mirrored_leg_pairs(armature)
+            armature["qwg_mirror_yz_error_before_enforce"] = mirror_error
 
         store_base_pose(armature)
         if self.map_after_create:
@@ -1589,5 +1796,7 @@ class QWG_OT_create_armature_from_guides(Operator):
             armature.select_set(True)
             context.view_layer.objects.active = armature
 
-        self.report({"INFO"}, f"Generated QWalk armature from {guide.name}.")
+        mode_label = f"mirrored leg pairs (fixed {mirror_error:.4f}m)" if self.symmetrize_legs else "asymmetric leg guides"
+        replace_label = f" Replaced {removed_count} previous rig(s)." if removed_count else ""
+        self.report({"INFO"}, f"Generated QWalk armature from {guide.name} with {mode_label}.{replace_label}")
         return {"FINISHED"}

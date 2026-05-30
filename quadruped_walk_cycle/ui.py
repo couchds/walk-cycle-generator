@@ -24,7 +24,9 @@ class QWG_PT_panel(Panel):
 
         guide_build_row = layout.row()
         guide_build_row.enabled = self._has_selected_guide(context)
-        guide_build_row.operator("qwg.create_armature_from_guides", icon="ARMATURE_DATA")
+        guide_build_op = guide_build_row.operator("qwg.create_armature_from_guides", icon="ARMATURE_DATA")
+        guide_build_op.symmetrize_legs = True
+        guide_build_op.replace_existing_generated = True
 
         fit_row = layout.row()
         fit_row.enabled = self._has_selected_mesh(context)
