@@ -347,6 +347,102 @@ def mesh_points_in_fit_space(mesh_object, context, forward_axis):
     return [rotate_z(point, -angle) for point in mesh_world_points(mesh_object, context)], angle
 
 
+def points_near_y(points, y_value, radius, fallback_count=12):
+    """Return points inside a Y slice, falling back to nearest points."""
+    band = [point for point in points if abs(point.y - y_value) <= radius]
+    if len(band) >= 4:
+        return band
+    return sorted(points, key=lambda point: abs(point.y - y_value))[: min(fallback_count, len(points))]
+
+
+def slice_landmarks(points, y_value, radius, high_percentile=88.0):
+    """Measure low, high, and width landmarks from a Y slice."""
+    band = points_near_y(points, y_value, radius)
+    if not band:
+        return {"low": 0.0, "high": 0.0, "width": 0.0, "count": 0}
+
+    xs = [point.x for point in band]
+    zs = [point.z for point in band]
+    return {
+        "low": percentile(zs, 8.0),
+        "high": percentile(zs, high_percentile),
+        "width": percentile(xs, 94.0) - percentile(xs, 6.0),
+        "count": len(band),
+    }
+
+
+def measured_back_z(points, y_value, radius, fallback_z, high_percentile=84.0):
+    """Return a spine height from the local top surface of the mesh."""
+    landmarks = slice_landmarks(points, y_value, radius, high_percentile=high_percentile)
+    depth = max(landmarks["high"] - landmarks["low"], 0.0)
+    if landmarks["count"] < 4 or depth <= 0.0:
+        return fallback_z
+    return landmarks["high"] - depth * 0.08
+
+
+def estimate_body_span(points, local_min, local_max, ground_z, height):
+    """Estimate the main torso Y span from dense mid-body slices."""
+    length = max(local_max.y - local_min.y, 0.001)
+    bin_count = 44
+    step = length / (bin_count - 1)
+    radius = max(step * 0.8, length * 0.015)
+    low_z = ground_z + height * 0.22
+    high_z = ground_z + height * 0.78
+    samples = []
+
+    for index in range(bin_count):
+        y_value = local_min.y + step * index
+        band = [point for point in points_near_y(points, y_value, radius) if low_z <= point.z <= high_z]
+        if len(band) < 4:
+            samples.append((y_value, 0.0))
+            continue
+
+        xs = [point.x for point in band]
+        zs = [point.z for point in band]
+        width = percentile(xs, 92.0) - percentile(xs, 8.0)
+        depth = percentile(zs, 92.0) - percentile(zs, 8.0)
+        samples.append((y_value, max(0.0, width) * max(0.0, depth) * (len(band) ** 0.25)))
+
+    max_score = max(score for _, score in samples)
+    if max_score <= 0.0:
+        return None
+
+    active = [(y_value, score >= max_score * 0.38) for y_value, score in samples]
+    best_start = best_end = None
+    current_start = None
+    for index, (_, is_active) in enumerate(active + [(0.0, False)]):
+        if is_active and current_start is None:
+            current_start = index
+        elif not is_active and current_start is not None:
+            current_end = index - 1
+            if best_start is None or current_end - current_start > best_end - best_start:
+                best_start, best_end = current_start, current_end
+            current_start = None
+
+    if best_start is None:
+        return None
+
+    span_min = samples[best_start][0] - radius * 0.35
+    span_max = samples[best_end][0] + radius * 0.35
+    if span_max - span_min < length * 0.28:
+        return None
+    return clamp(span_min, local_min.y, local_max.y), clamp(span_max, local_min.y, local_max.y)
+
+
+def measured_leg_levels(points, foot_y, radius, ground_z, body_low_z, fallback_upper, fallback_lower):
+    """Estimate leg joint heights from the mesh column over a foot."""
+    column = [
+        point
+        for point in points_near_y(points, foot_y, radius)
+        if ground_z <= point.z <= body_low_z
+    ]
+    if len(column) < 4:
+        return fallback_upper, fallback_lower
+
+    zs = [point.z for point in column]
+    return percentile(zs, 68.0), percentile(zs, 32.0)
+
+
 def build_landmark_profile(points, profile_key, fit_amount, robust=True, top_percentile=88.0):
     """Build a temporary profile from mesh-derived body and foot landmarks."""
     local_min, local_max, local_size = robust_bounds_from_points(points, robust, top_percentile)
@@ -361,9 +457,13 @@ def build_landmark_profile(points, profile_key, fit_amount, robust=True, top_per
     if len(torso_points) < 12:
         torso_points = points
 
+    body_span = estimate_body_span(points, local_min, local_max, ground_z, height)
     torso_y_values = [point.y for point in torso_points]
-    body_y_min = percentile(torso_y_values, 18.0)
-    body_y_max = percentile(torso_y_values, 82.0)
+    if body_span:
+        body_y_min, body_y_max = body_span
+    else:
+        body_y_min = percentile(torso_y_values, 18.0)
+        body_y_max = percentile(torso_y_values, 82.0)
     if body_y_max - body_y_min < length * 0.35:
         body_y_min = local_min.y + length * 0.24
         body_y_max = local_max.y - length * 0.18
@@ -385,16 +485,17 @@ def build_landmark_profile(points, profile_key, fit_amount, robust=True, top_per
     back_z = percentile(body_z_values, 86.0)
     body_depth = max(back_z - belly_z, height * 0.25)
 
-    style = {
-        "STOCKY": {"spine": 0.74, "spine_floor": 0.70, "neck_raise": 0.11, "leg_side": 0.30},
-        "MEDIUM": {"spine": 0.70, "spine_floor": 0.66, "neck_raise": 0.13, "leg_side": 0.28},
-        "HORSE": {"spine": 0.78, "spine_floor": 0.72, "neck_raise": 0.20, "leg_side": 0.24},
-    }.get(profile_key, {"spine": 0.70, "spine_floor": 0.66, "neck_raise": 0.13, "leg_side": 0.28})
-
-    spine_z = max(belly_z + body_depth * style["spine"], ground_z + height * style["spine_floor"])
-    pelvis_z = spine_z - height * 0.025
-    mid_spine_z = spine_z + height * 0.015
-    chest_z = spine_z + height * 0.035
+    slice_radius = max(body_length / 18.0, length / max(24.0, len(points) ** 0.5))
+    pelvis_y = body_y_min
+    spine_a_y = body_y_min + body_length * 0.32
+    spine_b_y = body_y_min + body_length * 0.64
+    chest_y = body_y_max
+    fallback_spine_z = percentile(body_z_values, 82.0)
+    spine_points = body_points if len(body_points) >= 12 else torso_points
+    pelvis_z = measured_back_z(spine_points, pelvis_y, slice_radius, fallback_spine_z)
+    spine_z = measured_back_z(spine_points, spine_a_y, slice_radius, fallback_spine_z)
+    mid_spine_z = measured_back_z(spine_points, spine_b_y, slice_radius, fallback_spine_z)
+    chest_z = measured_back_z(spine_points, chest_y, slice_radius, fallback_spine_z)
 
     low_points = [
         point
@@ -417,7 +518,11 @@ def build_landmark_profile(points, profile_key, fit_amount, robust=True, top_per
     full_tail_y = inset(local_min.y, body_center_y, min(fit_amount, 1.15))
     full_head_y = inset(local_max.y, body_center_y, min(fit_amount, 1.15))
     x_center = (local_min.x + local_max.x) * 0.5
-    leg_width = max(width * style["leg_side"] * fit_amount, height * 0.055)
+    low_offsets = [abs(point.x - x_center) for point in low_points]
+    if low_offsets:
+        leg_width = max(percentile(low_offsets, 76.0) * fit_amount, height * 0.055)
+    else:
+        leg_width = max(width * 0.28 * fit_amount, height * 0.055)
     root_width = max(width * 0.34, height * 0.08)
     foot_z = ground_z + height * 0.035
 
@@ -426,8 +531,8 @@ def build_landmark_profile(points, profile_key, fit_amount, robust=True, top_per
 
     neck_y = body_y_max + max((full_head_y - body_y_max) * 0.32, body_length * 0.10)
     head_y = body_y_max + max((full_head_y - body_y_max) * 0.78, body_length * 0.22)
-    neck_z = chest_z + height * style["neck_raise"]
-    head_z = neck_z - height * 0.06
+    neck_z = measured_back_z(points, neck_y, slice_radius, chest_z + body_depth * 0.10)
+    head_z = measured_back_z(points, head_y, slice_radius, neck_z - body_depth * 0.06)
 
     front_shoulder_y = clamp(front_foot_y + body_length * 0.03, body_y_max - body_length * 0.18, body_y_max + body_length * 0.08)
     front_elbow_y = front_foot_y - body_length * 0.06
@@ -438,28 +543,49 @@ def build_landmark_profile(points, profile_key, fit_amount, robust=True, top_per
     rear_stifle_y = rear_foot_y + body_length * 0.13
     rear_hock_y = rear_foot_y + body_length * 0.02
     rear_toe_y = rear_foot_y + body_length * 0.12
+    leg_top_z = max(belly_z, ground_z + height * 0.42)
+    front_upper_z, front_lower_z = measured_leg_levels(
+        points,
+        front_foot_y,
+        slice_radius * 1.35,
+        ground_z,
+        leg_top_z,
+        ground_z + (leg_top_z - ground_z) * 0.72,
+        ground_z + (leg_top_z - ground_z) * 0.34,
+    )
+    rear_upper_z, rear_lower_z = measured_leg_levels(
+        points,
+        rear_foot_y,
+        slice_radius * 1.35,
+        ground_z,
+        leg_top_z,
+        ground_z + (leg_top_z - ground_z) * 0.72,
+        ground_z + (leg_top_z - ground_z) * 0.34,
+    )
+    front_shoulder_z = min(measured_back_z(spine_points, front_shoulder_y, slice_radius, chest_z) - body_depth * 0.42, leg_top_z)
+    rear_hip_z = min(measured_back_z(spine_points, rear_hip_y, slice_radius, pelvis_z) - body_depth * 0.36, leg_top_z)
 
     front_leg = {
         "anchor_parent": "chest",
         "guide": "scapula",
         "guide_head": rel(x_center, body_y_max - body_length * 0.06, chest_z),
-        "guide_tail": rel(x_center, front_shoulder_y, belly_z + body_depth * 0.42),
-        "upper_head": rel(x_center, front_shoulder_y, belly_z + body_depth * 0.42),
-        "upper_tail": rel(x_center, front_elbow_y, ground_z + height * 0.36),
-        "lower_tail": rel(x_center, front_wrist_y, ground_z + height * 0.13),
+        "guide_tail": rel(x_center, front_shoulder_y, front_shoulder_z),
+        "upper_head": rel(x_center, front_shoulder_y, front_shoulder_z),
+        "upper_tail": rel(x_center, front_elbow_y, front_upper_z),
+        "lower_tail": rel(x_center, front_wrist_y, front_lower_z),
         "foot_tail": rel(x_center, front_toe_y, foot_z),
-        "pole": rel(x_center, front_foot_y - body_length * 0.32, ground_z + height * 0.42),
+        "pole": rel(x_center, front_foot_y - body_length * 0.32, front_upper_z),
     }
     rear_leg = {
         "anchor_parent": "pelvis",
         "guide": "hip",
         "guide_head": rel(x_center, body_y_min + body_length * 0.06, pelvis_z),
-        "guide_tail": rel(x_center, rear_hip_y, belly_z + body_depth * 0.50),
-        "upper_head": rel(x_center, rear_hip_y, belly_z + body_depth * 0.50),
-        "upper_tail": rel(x_center, rear_stifle_y, ground_z + height * 0.38),
-        "lower_tail": rel(x_center, rear_hock_y, ground_z + height * 0.14),
+        "guide_tail": rel(x_center, rear_hip_y, rear_hip_z),
+        "upper_head": rel(x_center, rear_hip_y, rear_hip_z),
+        "upper_tail": rel(x_center, rear_stifle_y, rear_upper_z),
+        "lower_tail": rel(x_center, rear_hock_y, rear_lower_z),
         "foot_tail": rel(x_center, rear_toe_y, foot_z),
-        "pole": rel(x_center, rear_foot_y - body_length * 0.36, ground_z + height * 0.44),
+        "pole": rel(x_center, rear_foot_y - body_length * 0.36, rear_upper_z),
     }
 
     label = QUADRUPED_PROFILES.get(profile_key, QUADRUPED_PROFILES["MEDIUM"])["label"]
@@ -468,13 +594,13 @@ def build_landmark_profile(points, profile_key, fit_amount, robust=True, top_per
         "root": {"head": rel(x_center - root_width, body_center_y, ground_z), "tail": rel(x_center + root_width, body_center_y, ground_z)},
         "body": {"head": rel(x_center, body_y_min, pelvis_z), "tail": rel(x_center, body_y_max, chest_z)},
         "spine": [
-            ("pelvis", rel(x_center, body_y_min, pelvis_z), rel(x_center, body_y_min + body_length * 0.32, spine_z)),
+            ("pelvis", rel(x_center, pelvis_y, pelvis_z), rel(x_center, spine_a_y, spine_z)),
             (
                 "spine_01",
-                rel(x_center, body_y_min + body_length * 0.32, spine_z),
-                rel(x_center, body_y_min + body_length * 0.64, mid_spine_z),
+                rel(x_center, spine_a_y, spine_z),
+                rel(x_center, spine_b_y, mid_spine_z),
             ),
-            ("chest", rel(x_center, body_y_min + body_length * 0.64, mid_spine_z), rel(x_center, body_y_max, chest_z)),
+            ("chest", rel(x_center, spine_b_y, mid_spine_z), rel(x_center, chest_y, chest_z)),
         ],
         "neck": {"head": rel(x_center, body_y_max, chest_z), "tail": rel(x_center, neck_y, neck_z)},
         "head": {"head": rel(x_center, neck_y, neck_z), "tail": rel(x_center, head_y, head_z)},

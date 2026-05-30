@@ -66,13 +66,13 @@ New generated rigs open in Pose Mode with the main animation controls selected. 
 
 ## Mesh Fitting Phase 1
 
-Select a mesh and click **Create Fitted Quadruped Armature** to place a generated armature from coarse mesh landmarks. This first phase estimates the ground, torso band, foot contact areas, and broad body type:
+Select a mesh and click **Create Fitted Quadruped Armature** to place a generated armature from coarse mesh landmarks. This first phase estimates the ground, main torso span, upper back surface, foot contact areas, and broad body type:
 
 - Leave `Profile` set to `Auto` for the add-on to choose Medium, Stocky, or Horse proportions from the mesh bounds.
 - Choose a specific `Profile` in the operator redo panel when you already know the animal type.
 - Choose `Mesh Forward` based on the direction from tail toward head.
 - Adjust `Fit` if the rig should sit tighter or looser inside the mesh.
-- Leave `Robust Bounds` enabled for meshes with horns, manes, fur, bulky tails, or other silhouettes that should not dominate the vertical fit.
+- Leave `Robust Bounds` enabled for meshes with horns, manes, fur, bulky tails, or other silhouettes that should not dominate the vertical fit. The fitter detects the main torso span before measuring the spine, so horns and head volume are less likely to pull the back line upward.
 
 This does not bind the mesh yet. It only creates a fitted armature.
 
