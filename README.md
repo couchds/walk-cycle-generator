@@ -90,7 +90,7 @@ When a guide armature is selected, the QWalk panel shows the active guide bone l
 
 The older **Create Fitted Quadruped Armature** button still creates a direct one-shot fitted armature, but it is best treated as a quick draft rather than the main workflow.
 
-Binding defaults to QWalk's nearest-bone weights, which creates real vertex groups and an Armature modifier without relying on Blender's heat weighting. Use the operator redo panel if you want to try Blender Automatic instead. For production results, expect to clean up vertex weights around shoulders, hips, hooves, horns, and dense fur.
+Binding defaults to QWalk's nearest-bone weights, which creates real vertex groups and an Armature modifier without relying on Blender's heat weighting. The QWalk binder biases torso, head, and belly vertices away from accidental leg influence, then prunes tiny leftover weights that can make horns, mouths, and loose belly fur follow the moving feet. Use the operator redo panel if you want to try Blender Automatic instead. For production results, expect to clean up vertex weights around shoulders, hips, hooves, horns, and dense fur.
 
 ## Notes
 

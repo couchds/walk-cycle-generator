@@ -31,6 +31,10 @@ from .rig_utils import (
 )
 
 
+LEG_BONE_PREFIXES = ("front_left_", "front_right_", "rear_left_", "rear_right_")
+TORSO_BONE_NAMES = {"pelvis", "spine_01", "chest"}
+
+
 class QWG_OT_auto_map(Operator):
     bl_idname = "qwg.auto_map"
     bl_label = "Auto Map Bones"
@@ -195,6 +199,102 @@ def distance_to_segment(point, start, end):
     return (point - closest).length
 
 
+def leg_prefix(name):
+    """Return the QWalk leg prefix for a bone name, or None for non-leg bones."""
+    for prefix in LEG_BONE_PREFIXES:
+        if name.startswith(prefix):
+            return prefix
+    return None
+
+
+def binding_metrics(segments):
+    """Return rig-space landmarks used to keep body vertices off animated legs."""
+    points = [point for _, head, tail in segments for point in (head, tail)]
+    if not points:
+        return {}
+
+    ground_z = min(point.z for point in points)
+    height = max(max(point.z for point in points) - ground_z, 0.001)
+    leg_boxes = {}
+    torso_points = []
+
+    for name, head, tail in segments:
+        prefix = leg_prefix(name)
+        if prefix:
+            box = leg_boxes.setdefault(prefix, {"xs": [], "ys": [], "zs": []})
+            box["xs"].extend((head.x, tail.x))
+            box["ys"].extend((head.y, tail.y))
+            box["zs"].extend((head.z, tail.z))
+        elif name in TORSO_BONE_NAMES:
+            torso_points.extend((head, tail))
+
+    for prefix, box in list(leg_boxes.items()):
+        leg_boxes[prefix] = {
+            "min_x": min(box["xs"]),
+            "max_x": max(box["xs"]),
+            "min_y": min(box["ys"]),
+            "max_y": max(box["ys"]),
+            "min_z": min(box["zs"]),
+            "max_z": max(box["zs"]),
+        }
+
+    body_box = None
+    if torso_points:
+        body_box = {
+            "min_y": min(point.y for point in torso_points),
+            "max_y": max(point.y for point in torso_points),
+        }
+
+    return {
+        "body_box": body_box,
+        "ground_z": ground_z,
+        "height": height,
+        "leg_boxes": leg_boxes,
+    }
+
+
+def in_body_band(point, metrics):
+    """Return whether a point sits in the main torso span."""
+    body_box = metrics.get("body_box")
+    if not body_box:
+        return False
+
+    height = metrics.get("height", 1.0)
+    pad_y = max(height * 0.06, 0.04)
+    belly_floor = metrics.get("ground_z", 0.0) + height * 0.12
+    return (
+        body_box["min_y"] - pad_y <= point.y <= body_box["max_y"] + pad_y
+        and point.z >= belly_floor
+    )
+
+
+def adjusted_binding_distance(point, segment, raw_distance, closest_body_distance, metrics):
+    """Bias nearest-bone scoring away from accidental leg influence."""
+    name, _, _ = segment
+    prefix = leg_prefix(name)
+    body_band = in_body_band(point, metrics)
+    distance = raw_distance
+
+    if prefix:
+        box = metrics.get("leg_boxes", {}).get(prefix)
+        height = metrics.get("height", 1.0)
+        pad_y = max(height * 0.08, 0.05)
+        pad_z = max(height * 0.08, 0.05)
+
+        if box:
+            if point.y < box["min_y"] - pad_y or point.y > box["max_y"] + pad_y:
+                distance *= 5.0
+            if point.z > box["max_z"] + pad_z:
+                distance *= 8.0
+
+        if body_band and closest_body_distance <= raw_distance * 2.5:
+            distance *= 4.0
+    elif body_band and name in TORSO_BONE_NAMES:
+        distance *= 0.55
+
+    return distance
+
+
 def bind_with_nearest_bone_weights(mesh, armature, max_influences):
     """Bind one mesh using nearest deform bone segment weights."""
     segments = deform_bone_segments(armature)
@@ -216,13 +316,26 @@ def bind_with_nearest_bone_weights(mesh, armature, max_influences):
 
     armature_inverse = armature.matrix_world.inverted()
     influence_count = min(max_influences, len(segments))
+    metrics = binding_metrics(segments)
     for vertex in mesh.data.vertices:
         point = armature_inverse @ (mesh.matrix_world @ vertex.co)
+        raw_distances = [(distance_to_segment(point, head, tail), (name, head, tail)) for name, head, tail in segments]
+        body_distances = [distance for distance, segment in raw_distances if not leg_prefix(segment[0])]
+        closest_body_distance = min(body_distances) if body_distances else float("inf")
         scored = sorted(
-            ((distance_to_segment(point, head, tail), name) for name, head, tail in segments),
+            (
+                (
+                    adjusted_binding_distance(point, segment, distance, closest_body_distance, metrics),
+                    segment[0],
+                )
+                for distance, segment in raw_distances
+            ),
             key=lambda item: item[0],
         )[:influence_count]
         weights = [(name, 1.0 / max(distance * distance, 0.0001)) for distance, name in scored]
+        if weights:
+            strongest = max(weight for _, weight in weights)
+            weights = [(name, weight) for name, weight in weights if weight >= strongest * 0.12]
         total = sum(weight for _, weight in weights) or 1.0
         for name, weight in weights:
             groups[name].add([vertex.index], weight / total, "REPLACE")
