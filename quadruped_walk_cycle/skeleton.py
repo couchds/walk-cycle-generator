@@ -71,6 +71,14 @@ GUIDE_SPINE_BONES = {
     "tail": "qwg_guide_tail",
 }
 
+MESH_FORWARD_AXIS_ITEMS = (
+    ("AUTO", "Auto", "Detect the mesh's dominant horizontal axis before fitting"),
+    ("POS_Y", "+Y", "Mesh faces toward positive Y"),
+    ("NEG_Y", "-Y", "Mesh faces toward negative Y"),
+    ("POS_X", "+X", "Mesh faces toward positive X"),
+    ("NEG_X", "-X", "Mesh faces toward negative X"),
+)
+
 QUADRUPED_PROFILES = {
     "MEDIUM": {
         "label": "Medium Quadruped",
@@ -373,10 +381,15 @@ def rotate_z(point, angle):
     return Vector((point.x * cos(angle) - point.y * sin(angle), point.x * sin(angle) + point.y * cos(angle), point.z))
 
 
+def rotate_points_in_fit_space(points, forward_axis):
+    """Return world-space points rotated into the requested +Y-forward fit space."""
+    angle = forward_axis_rotation(forward_axis)
+    return [rotate_z(point, -angle) for point in points], angle
+
+
 def mesh_points_in_fit_space(mesh_object, context, forward_axis):
     """Return mesh points in a +Y-forward fitting space."""
-    angle = forward_axis_rotation(forward_axis)
-    return [rotate_z(point, -angle) for point in mesh_world_points(mesh_object, context)], angle
+    return rotate_points_in_fit_space(mesh_world_points(mesh_object, context), forward_axis)
 
 
 def points_near_y(points, y_value, radius, fallback_count=12):
@@ -651,6 +664,73 @@ def build_landmark_profile(points, profile_key, fit_amount, robust=True, top_per
         "control_scale": max(height, length * 0.35),
     }
     return profile, Vector((x_center, body_center_y, ground_z)), local_min, local_max, local_size
+
+
+def end_slice_score(points, y_min, y_max, ground_z, height, sample_from_front=True):
+    """Score how much mid-body mass exists near one end of the fitted axis."""
+    span = max(y_max - y_min, 0.001)
+    radius = max(span * 0.08, 0.001)
+    target_y = y_max - radius if sample_from_front else y_min + radius
+    band = [
+        point
+        for point in points_near_y(points, target_y, radius)
+        if ground_z + height * 0.12 <= point.z <= ground_z + height * 0.78
+    ]
+    if len(band) < 4:
+        return 0.0
+
+    xs = [point.x for point in band]
+    zs = [point.z for point in band]
+    width = percentile(xs, 92.0) - percentile(xs, 8.0)
+    depth = percentile(zs, 92.0) - percentile(zs, 8.0)
+    return max(0.0, width) * max(0.0, depth) * (len(band) ** 0.25)
+
+
+def fit_orientation_score(points, fit_amount, robust=True, top_percentile=88.0):
+    """Return a plausibility score for one candidate fit orientation."""
+    profile, _, local_min, local_max, local_size = build_landmark_profile(
+        points,
+        "MEDIUM",
+        fit_amount,
+        robust=robust,
+        top_percentile=top_percentile,
+    )
+    mesh_length = max(local_size.y, 0.001)
+    body_length = abs(profile["body"]["tail"][1] - profile["body"]["head"][1])
+    foot_spread = profile["front_leg"]["foot_tail"][1] - profile["rear_leg"]["foot_tail"][1]
+    front_anchor_drop = profile["spine"][-1][2][2] - profile["front_leg"]["upper_head"][2]
+    rear_anchor_drop = profile["spine"][0][1][2] - profile["rear_leg"]["upper_head"][2]
+    head_score = end_slice_score(points, local_min.y, local_max.y, local_min.z, local_size.z, sample_from_front=True)
+    tail_score = end_slice_score(points, local_min.y, local_max.y, local_min.z, local_size.z, sample_from_front=False)
+    head_bias = (head_score - tail_score) / max(head_score, tail_score, 0.001)
+
+    return (
+        body_length / mesh_length * 6.0
+        + max(0.0, foot_spread) / mesh_length * 4.0
+        + max(0.0, front_anchor_drop) / max(local_size.z, 0.001) * 1.2
+        + max(0.0, rear_anchor_drop) / max(local_size.z, 0.001) * 1.2
+        + head_bias * 1.5
+    )
+
+
+def resolve_fit_forward_axis(points, requested_axis, fit_amount, robust=True, top_percentile=88.0):
+    """Return the best-fit horizontal axis, preserving explicit user overrides."""
+    if requested_axis != "AUTO":
+        return requested_axis
+
+    candidates = []
+    for axis in ("POS_Y", "NEG_Y", "POS_X", "NEG_X"):
+        fit_points, _ = rotate_points_in_fit_space(points, axis)
+        score = fit_orientation_score(
+            fit_points,
+            fit_amount,
+            robust=robust,
+            top_percentile=top_percentile,
+        )
+        candidates.append((score, axis))
+
+    candidates.sort(reverse=True)
+    return candidates[0][1]
 
 
 def active_mesh(context):
@@ -1214,6 +1294,7 @@ def enforce_mirrored_leg_pairs(armature):
         enforce_leg_chain("rear_left", "rear_right", "hip"),
     )
 
+    sync_ik_controls_in_edit_mode(bones)
     bpy.ops.object.mode_set(mode="POSE")
     return max_error
 
@@ -1295,6 +1376,92 @@ def activate_body_control(armature_object):
         armature_object.data.bones.active = armature_object.data.bones["body"]
     except Exception:
         pass
+
+
+def sync_ik_controls_in_edit_mode(edit_bones):
+    """Reposition IK and pole controls to match the current rest leg chains."""
+    pelvis = edit_bones.get("pelvis")
+    chest = edit_bones.get("chest")
+    if pelvis and chest:
+        body_length = max(abs(chest.tail.y - pelvis.head.y), 0.1)
+    else:
+        body_length = 1.0
+
+    for leg in LEG_ORDER:
+        names = STANDARD_LEG_NAMES[leg]
+        upper = edit_bones.get(names["upper"])
+        lower = edit_bones.get(names["lower"])
+        foot = edit_bones.get(names["foot"])
+        ik = edit_bones.get(names["ik"])
+        pole = edit_bones.get(names["pole"])
+        if not all((upper, lower, foot, ik, pole)):
+            continue
+
+        side = 1.0 if leg.endswith("l") else -1.0
+        pole_factor = 0.22 if leg.startswith("f") else 0.24
+        foot_span = max((foot.tail - lower.tail).length * 0.45, 0.08)
+
+        ik.head = foot.tail.copy()
+        ik.tail = Vector((ik.head.x, ik.head.y + foot_span, ik.head.z))
+
+        pole_head = Vector((upper.tail.x, upper.tail.y - body_length * pole_factor, upper.tail.z))
+        pole.head = pole_head
+        pole.tail = Vector((pole_head.x + 0.14 * side, pole_head.y, pole_head.z))
+
+
+def signed_angle_around_axis(vector_u, vector_v, axis):
+    """Return the signed angle from vector_u to vector_v around axis."""
+    if vector_u.length <= 0.000001 or vector_v.length <= 0.000001 or axis.length <= 0.000001:
+        return 0.0
+
+    angle = vector_u.angle(vector_v)
+    if vector_u.cross(vector_v).dot(axis) < 0.0:
+        return -angle
+    return angle
+
+
+def calculate_ik_pole_angle(base_bone, ik_bone, pole_location):
+    """Return the pole angle that preserves the current rest leg plane."""
+    base_axis = base_bone.tail - base_bone.head
+    ik_axis = ik_bone.tail - base_bone.head
+    pole_axis = pole_location - base_bone.head
+    if base_axis.length <= 0.000001 or ik_axis.length <= 0.000001 or pole_axis.length <= 0.000001:
+        return 0.0
+
+    pole_normal = ik_axis.cross(pole_axis)
+    if pole_normal.length <= 0.000001:
+        return 0.0
+
+    projected_pole_axis = pole_normal.cross(base_axis)
+    if projected_pole_axis.length <= 0.000001:
+        return 0.0
+
+    return signed_angle_around_axis(base_bone.x_axis, projected_pole_axis, base_axis)
+
+
+def refresh_ik_constraints(armature_object):
+    """Recompute IK pole angles after the rest chain or controls change."""
+    pose_bones = armature_object.pose.bones
+
+    for leg in LEG_ORDER:
+        names = STANDARD_LEG_NAMES[leg]
+        foot_bone = pose_bones.get(names["foot"])
+        upper_bone = pose_bones.get(names["upper"])
+        pole_bone = pose_bones.get(names["pole"])
+        if not all((foot_bone, upper_bone, pole_bone)):
+            continue
+
+        constraint = next((item for item in foot_bone.constraints if item.type == "IK" and item.name == "QWalk IK"), None)
+        if not constraint:
+            continue
+
+        constraint.influence = 0.0
+        constraint.pole_angle = calculate_ik_pole_angle(
+            upper_bone,
+            foot_bone,
+            pole_bone.matrix.translation,
+        )
+        constraint.influence = 1.0
 
 
 def apply_standard_mapping(settings):
@@ -1462,6 +1629,7 @@ def create_standard_quadruped(
             deform=False,
         )
 
+    sync_ik_controls_in_edit_mode(bones)
     bpy.ops.object.mode_set(mode="POSE")
     for pose_bone in armature_object.pose.bones:
         pose_bone.rotation_mode = "XYZ"
@@ -1478,13 +1646,14 @@ def create_standard_quadruped(
             constraint.subtarget = names["ik"]
             constraint.pole_target = armature_object
             constraint.pole_subtarget = names["pole"]
-            constraint.pole_angle = -pi / 2.0
+            constraint.influence = 0.0
             constraint.chain_count = 3
             constraint.iterations = 24
             if hasattr(constraint, "use_rotation"):
                 constraint.use_rotation = True
             if hasattr(constraint, "use_stretch"):
                 constraint.use_stretch = False
+        refresh_ik_constraints(armature_object)
 
     assign_control_shapes(context, armature_object, scale, profile.get("control_scale", 1.0))
     assign_bone_groups(armature_object)
@@ -1575,13 +1744,8 @@ class QWG_OT_create_fitted_quadruped_armature(Operator):
     mesh_forward_axis: EnumProperty(
         name="Mesh Forward",
         description="World axis pointing from tail toward head on the selected mesh",
-        items=(
-            ("POS_Y", "+Y", "Mesh faces toward positive Y"),
-            ("NEG_Y", "-Y", "Mesh faces toward negative Y"),
-            ("POS_X", "+X", "Mesh faces toward positive X"),
-            ("NEG_X", "-X", "Mesh faces toward negative X"),
-        ),
-        default="POS_Y",
+        items=MESH_FORWARD_AXIS_ITEMS,
+        default="AUTO",
     )
     fit_amount: FloatProperty(
         name="Fit",
@@ -1635,7 +1799,15 @@ class QWG_OT_create_fitted_quadruped_armature(Operator):
             self.report({"ERROR"}, "Select a mesh to fit.")
             return {"CANCELLED"}
 
-        fit_points, angle = mesh_points_in_fit_space(mesh_object, context, self.mesh_forward_axis)
+        world_points = mesh_world_points(mesh_object, context)
+        resolved_forward_axis = resolve_fit_forward_axis(
+            world_points,
+            self.mesh_forward_axis,
+            self.fit_amount,
+            robust=self.robust_bounds,
+            top_percentile=self.top_percentile,
+        )
+        fit_points, angle = rotate_points_in_fit_space(world_points, resolved_forward_axis)
         _, _, mesh_size = robust_bounds_from_points(
             fit_points,
             robust=self.robust_bounds,
@@ -1662,6 +1834,7 @@ class QWG_OT_create_fitted_quadruped_armature(Operator):
         )
         armature["qwg_fit_mesh"] = mesh_object.name
         armature["qwg_fit_profile_requested"] = self.body_profile
+        armature["qwg_fit_forward_axis"] = resolved_forward_axis
 
         rotated_origin = rotate_z(origin, angle)
         armature.rotation_euler.z = angle
@@ -1671,7 +1844,8 @@ class QWG_OT_create_fitted_quadruped_armature(Operator):
         if self.map_after_create:
             apply_standard_mapping(context.scene.qwg_settings)
 
-        self.report({"INFO"}, f"Created fitted {profile['label']} armature for {mesh_object.name}.")
+        axis_note = f" using {resolved_forward_axis}" if self.mesh_forward_axis == "AUTO" else ""
+        self.report({"INFO"}, f"Created fitted {profile['label']} armature for {mesh_object.name}{axis_note}.")
         return {"FINISHED"}
 
 
@@ -1695,13 +1869,8 @@ class QWG_OT_create_fit_guides(Operator):
     mesh_forward_axis: EnumProperty(
         name="Mesh Forward",
         description="World axis pointing from tail toward head on the selected mesh",
-        items=(
-            ("POS_Y", "+Y", "Mesh faces toward positive Y"),
-            ("NEG_Y", "-Y", "Mesh faces toward negative Y"),
-            ("POS_X", "+X", "Mesh faces toward positive X"),
-            ("NEG_X", "-X", "Mesh faces toward negative X"),
-        ),
-        default="POS_Y",
+        items=MESH_FORWARD_AXIS_ITEMS,
+        default="AUTO",
     )
     fit_amount: FloatProperty(
         name="Fit",
@@ -1735,7 +1904,15 @@ class QWG_OT_create_fit_guides(Operator):
             self.report({"ERROR"}, "Select a mesh to fit.")
             return {"CANCELLED"}
 
-        fit_points, angle = mesh_points_in_fit_space(mesh_object, context, self.mesh_forward_axis)
+        world_points = mesh_world_points(mesh_object, context)
+        resolved_forward_axis = resolve_fit_forward_axis(
+            world_points,
+            self.mesh_forward_axis,
+            self.fit_amount,
+            robust=self.robust_bounds,
+            top_percentile=self.top_percentile,
+        )
+        fit_points, angle = rotate_points_in_fit_space(world_points, resolved_forward_axis)
         _, _, mesh_size = robust_bounds_from_points(
             fit_points,
             robust=self.robust_bounds,
@@ -1760,7 +1937,9 @@ class QWG_OT_create_fit_guides(Operator):
             source_mesh_name=mesh_object.name,
             profile_key=profile_key,
         )
-        self.report({"INFO"}, f"Created editable QWalk guides for {mesh_object.name}.")
+        guide["qwg_fit_forward_axis"] = resolved_forward_axis
+        axis_note = f" using {resolved_forward_axis}" if self.mesh_forward_axis == "AUTO" else ""
+        self.report({"INFO"}, f"Created editable QWalk guides for {mesh_object.name}{axis_note}.")
         return {"FINISHED"}
 
 
@@ -1859,6 +2038,8 @@ class QWG_OT_create_armature_from_guides(Operator):
             mirror_error = enforce_mirrored_leg_pairs(armature)
             armature["qwg_mirror_yz_error_before_enforce"] = mirror_error
 
+        if self.add_ik_constraints:
+            refresh_ik_constraints(armature)
         store_base_pose(armature)
         if self.map_after_create:
             apply_standard_mapping(context.scene.qwg_settings)
