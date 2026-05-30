@@ -13,6 +13,12 @@ class Gait:
 
 
 GAITS = {
+    "COMPACT_WALK": Gait(
+        label="Compact Walk",
+        phases={"rl": 0.00, "fl": 0.75, "rr": 0.50, "fr": 0.25},
+        duty_factor=0.74,
+        body_bobs_per_cycle=4,
+    ),
     "WALK": Gait(
         label="Walk",
         phases={"fl": 0.00, "rr": 0.25, "fr": 0.50, "rl": 0.75},

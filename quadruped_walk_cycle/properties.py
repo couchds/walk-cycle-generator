@@ -34,12 +34,13 @@ class QWG_Settings(PropertyGroup):
         name="Gait",
         description="Footfall pattern to generate",
         items=(
+            ("COMPACT_WALK", "Compact Walk", "Grounded four-beat walk for stocky goat, sheep, and ram-like rigs"),
             ("WALK", "Walk", "Four-beat walk"),
             ("TROT", "Trot", "Diagonal two-beat trot"),
             ("PACE", "Pace", "Lateral two-beat pace"),
             ("BOUND", "Bound", "Rear pair then front pair"),
         ),
-        default="WALK",
+        default="COMPACT_WALK",
     )
     generation_mode: EnumProperty(
         name="Mode",
@@ -78,7 +79,7 @@ class QWG_Settings(PropertyGroup):
     stride_length: FloatProperty(
         name="Stride",
         description="Forward/back distance for foot targets",
-        default=0.65,
+        default=0.42,
         min=0.0,
         soft_max=5.0,
         unit="LENGTH",
@@ -86,7 +87,7 @@ class QWG_Settings(PropertyGroup):
     step_height: FloatProperty(
         name="Lift",
         description="Vertical foot lift during the swing phase",
-        default=0.22,
+        default=0.12,
         min=0.0,
         soft_max=2.0,
         unit="LENGTH",
@@ -94,7 +95,7 @@ class QWG_Settings(PropertyGroup):
     body_bob: FloatProperty(
         name="Body Bob",
         description="Vertical body motion",
-        default=0.04,
+        default=0.025,
         min=0.0,
         soft_max=1.0,
         unit="LENGTH",
@@ -102,7 +103,7 @@ class QWG_Settings(PropertyGroup):
     body_sway: FloatProperty(
         name="Body Sway",
         description="Side-to-side body motion",
-        default=0.02,
+        default=0.012,
         min=0.0,
         soft_max=1.0,
         unit="LENGTH",
@@ -110,14 +111,14 @@ class QWG_Settings(PropertyGroup):
     body_pitch: FloatProperty(
         name="Pitch Deg",
         description="Forward/back body rotation in degrees",
-        default=2.0,
+        default=1.0,
         min=0.0,
         soft_max=20.0,
     )
     body_roll: FloatProperty(
         name="Roll Deg",
         description="Side-to-side body rotation in degrees",
-        default=1.5,
+        default=0.8,
         min=0.0,
         soft_max=20.0,
     )

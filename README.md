@@ -15,7 +15,7 @@ A Blender add-on that generates looping walk-cycle keys for four-legged armature
 1. Select the animal armature, or click **Create Quadruped Armature** to make a starter rig.
 2. Click **Auto Map Bones** when using your own rig. The generated starter rig maps itself automatically.
 3. Review the mapped fields. Auto mapping is best-effort because rigs use wildly different naming conventions.
-4. Choose a gait: Walk, Trot, Pace, or Bound.
+4. Choose a gait: Compact Walk, Walk, Trot, Pace, or Bound.
 5. Choose generation mode:
    - **Auto**: uses IK target bones where mapped, otherwise FK chains.
    - **IK Targets**: animates mapped foot or paw controls by location.
@@ -97,6 +97,7 @@ Binding defaults to QWalk's nearest-bone weights, which creates real vertex grou
 - **Replace Keys** removes existing location/Euler rotation keys on mapped bones only inside the selected frame range.
 - **Set Base Pose** stores the current mapped transforms as the neutral pose used by future generations.
 - IK walk motion is clamped per leg from the rest chain length so compact fitted rigs are not overdriven by the default stride and lift values.
+- **Compact Walk** is the default for goat, sheep, ram, and other stocky rigs. It uses a grounded four-beat order, shorter rear reach, lower foot lift, and reduced body bob compared with the generic walk.
 - IK mode only moves target/control bones. Your rig's IK constraints still determine the final limb bending.
 - FK mode is intentionally generic. It gives a usable blocking pass, but animal-specific polish usually still needs animator cleanup.
 - `FK Swing`, `FK Lift`, and `FK Bend` only apply when the current mode resolves to FK. The panel disables them when the mapped rig is using IK.

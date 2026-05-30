@@ -490,6 +490,7 @@ class QWG_OT_generate_walk_cycle(Operator):
                     settings.stride_length,
                     settings.step_height,
                 )
+                forward, lift = self._shape_leg_motion(settings, leg, forward, lift)
                 if leg_mode == "IK":
                     self._animate_ik_leg(armature, settings, baselines, leg, frame, forward, lift)
                 elif leg_mode == "FK":
@@ -540,12 +541,26 @@ class QWG_OT_generate_walk_cycle(Operator):
         for leg in LEG_ORDER:
             length = self._leg_chain_length(armature, settings, leg)
             if length > 0.0:
+                forward_factor = 0.18
+                lift_factor = 0.10
+                if settings.gait == "COMPACT_WALK":
+                    forward_factor = 0.15 if leg.startswith("f") else 0.13
+                    lift_factor = 0.065 if leg.startswith("f") else 0.055
                 baselines["leg_limits"][leg] = {
-                    "forward": max(length * 0.18, 0.01),
-                    "lift": max(length * 0.10, 0.005),
+                    "forward": max(length * forward_factor, 0.01),
+                    "lift": max(length * lift_factor, 0.005),
                 }
 
         return baselines
+
+    def _shape_leg_motion(self, settings, leg, forward, lift):
+        """Adjust generic stride values for gait-specific animal proportions."""
+        if settings.gait != "COMPACT_WALK":
+            return forward, lift
+
+        reach_scale = 0.82 if leg.startswith("f") else 0.74
+        lift_scale = 0.58 if leg.startswith("f") else 0.50
+        return forward * reach_scale, lift * lift_scale
 
     def _leg_chain_length(self, armature, settings, leg):
         """Return the rest length of a mapped FK leg chain."""
@@ -559,10 +574,11 @@ class QWG_OT_generate_walk_cycle(Operator):
     def _animate_body(self, armature, settings, gait, baselines, frame, cycle_pos):
         """Key body bob, sway, pitch, and roll for one frame."""
         target_name = settings.body_bone or settings.root_bone
-        bob = math.sin(cycle_pos * math.tau * gait.body_bobs_per_cycle) * settings.body_bob
-        sway = math.sin(cycle_pos * math.tau * 2.0) * settings.body_sway
-        pitch = math.sin(cycle_pos * math.tau) * math.radians(settings.body_pitch)
-        roll = math.sin(cycle_pos * math.tau * 2.0) * math.radians(settings.body_roll)
+        motion_scale = 0.65 if settings.gait == "COMPACT_WALK" else 1.0
+        bob = math.sin(cycle_pos * math.tau * gait.body_bobs_per_cycle) * settings.body_bob * motion_scale
+        sway = math.sin(cycle_pos * math.tau * 2.0) * settings.body_sway * motion_scale
+        pitch = math.sin(cycle_pos * math.tau) * math.radians(settings.body_pitch) * motion_scale
+        roll = math.sin(cycle_pos * math.tau * 2.0) * math.radians(settings.body_roll) * motion_scale
 
         if bone_exists(armature, target_name):
             bone = armature.pose.bones[target_name]
