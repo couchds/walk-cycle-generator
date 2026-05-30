@@ -594,11 +594,26 @@ class QWG_OT_generate_walk_cycle(Operator):
     def _animate_body(self, armature, settings, gait, baselines, frame, cycle_pos):
         """Key body bob, sway, pitch, and roll for one frame."""
         target_name = settings.body_bone or settings.root_bone
-        motion_scale = 0.65 if settings.gait == "COMPACT_WALK" else 1.0
-        bob = math.sin(cycle_pos * math.tau * gait.body_bobs_per_cycle) * settings.body_bob * motion_scale
-        sway = math.sin(cycle_pos * math.tau * 2.0) * settings.body_sway * motion_scale
-        pitch = math.sin(cycle_pos * math.tau) * math.radians(settings.body_pitch) * motion_scale
-        roll = math.sin(cycle_pos * math.tau * 2.0) * math.radians(settings.body_roll) * motion_scale
+        bob = (
+            math.sin(cycle_pos * math.tau * gait.body_bob_frequency)
+            * settings.body_bob
+            * gait.body_bob_scale
+        )
+        sway = (
+            math.sin(cycle_pos * math.tau * gait.body_sway_frequency)
+            * settings.body_sway
+            * gait.body_sway_scale
+        )
+        pitch = (
+            math.sin(cycle_pos * math.tau * gait.body_pitch_frequency)
+            * math.radians(settings.body_pitch)
+            * gait.body_pitch_scale
+        )
+        roll = (
+            math.sin(cycle_pos * math.tau * gait.body_roll_frequency)
+            * math.radians(settings.body_roll)
+            * gait.body_roll_scale
+        )
 
         if bone_exists(armature, target_name):
             bone = armature.pose.bones[target_name]

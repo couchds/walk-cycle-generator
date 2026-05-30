@@ -4,44 +4,86 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class Gait:
-    """Footfall timing and body-bob metadata for a quadruped gait."""
+    """Footfall timing and body-motion metadata for a quadruped gait."""
 
     label: str
     phases: dict
     duty_factor: float
-    body_bobs_per_cycle: int
+    body_bob_frequency: float
+    body_sway_frequency: float
+    body_pitch_frequency: float
+    body_roll_frequency: float
+    body_bob_scale: float = 1.0
+    body_sway_scale: float = 1.0
+    body_pitch_scale: float = 1.0
+    body_roll_scale: float = 1.0
 
 
 GAITS = {
     "COMPACT_WALK": Gait(
         label="Compact Walk",
         phases={"rl": 0.00, "fl": 0.75, "rr": 0.50, "fr": 0.25},
-        duty_factor=0.74,
-        body_bobs_per_cycle=4,
+        duty_factor=0.82,
+        body_bob_frequency=2.0,
+        body_sway_frequency=1.0,
+        body_pitch_frequency=1.0,
+        body_roll_frequency=1.0,
+        body_bob_scale=0.55,
+        body_sway_scale=0.42,
+        body_pitch_scale=0.50,
+        body_roll_scale=0.38,
     ),
     "WALK": Gait(
         label="Walk",
         phases={"fl": 0.00, "rr": 0.25, "fr": 0.50, "rl": 0.75},
-        duty_factor=0.68,
-        body_bobs_per_cycle=4,
+        duty_factor=0.78,
+        body_bob_frequency=2.0,
+        body_sway_frequency=1.0,
+        body_pitch_frequency=1.0,
+        body_roll_frequency=1.0,
+        body_bob_scale=0.82,
+        body_sway_scale=0.72,
+        body_pitch_scale=0.72,
+        body_roll_scale=0.65,
     ),
     "TROT": Gait(
         label="Trot",
         phases={"fl": 0.00, "rr": 0.00, "fr": 0.50, "rl": 0.50},
-        duty_factor=0.52,
-        body_bobs_per_cycle=2,
+        duty_factor=0.58,
+        body_bob_frequency=2.0,
+        body_sway_frequency=1.0,
+        body_pitch_frequency=2.0,
+        body_roll_frequency=1.0,
+        body_bob_scale=0.90,
+        body_sway_scale=0.35,
+        body_pitch_scale=0.70,
+        body_roll_scale=0.25,
     ),
     "PACE": Gait(
         label="Pace",
         phases={"fl": 0.00, "rl": 0.00, "fr": 0.50, "rr": 0.50},
-        duty_factor=0.55,
-        body_bobs_per_cycle=2,
+        duty_factor=0.60,
+        body_bob_frequency=2.0,
+        body_sway_frequency=1.0,
+        body_pitch_frequency=1.0,
+        body_roll_frequency=1.0,
+        body_bob_scale=0.95,
+        body_sway_scale=0.75,
+        body_pitch_scale=0.65,
+        body_roll_scale=0.72,
     ),
     "BOUND": Gait(
         label="Bound",
         phases={"rl": 0.00, "rr": 0.00, "fl": 0.50, "fr": 0.50},
-        duty_factor=0.45,
-        body_bobs_per_cycle=2,
+        duty_factor=0.52,
+        body_bob_frequency=1.0,
+        body_sway_frequency=1.0,
+        body_pitch_frequency=1.0,
+        body_roll_frequency=1.0,
+        body_bob_scale=1.05,
+        body_sway_scale=0.0,
+        body_pitch_scale=0.85,
+        body_roll_scale=0.0,
     ),
 }
 
