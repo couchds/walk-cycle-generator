@@ -66,7 +66,7 @@ New generated rigs open in Pose Mode with the main animation controls selected. 
 
 ## Mesh Fitting Phase 1
 
-Select a mesh and click **Create Fitted Quadruped Armature** to scale and place a generated armature inside the mesh's world-space bounds. This first phase uses broad mesh proportions rather than leg detection:
+Select a mesh and click **Create Fitted Quadruped Armature** to place a generated armature from coarse mesh landmarks. This first phase estimates the ground, torso band, foot contact areas, and broad body type:
 
 - Leave `Profile` set to `Auto` for the add-on to choose Medium, Stocky, or Horse proportions from the mesh bounds.
 - Choose a specific `Profile` in the operator redo panel when you already know the animal type.

@@ -205,6 +205,16 @@ def profile_from_mesh(mesh_size, forward_axis):
     return "MEDIUM"
 
 
+def clamp(value, minimum, maximum):
+    """Clamp a number between two bounds."""
+    return max(minimum, min(maximum, value))
+
+
+def inset(value, center, amount):
+    """Move a coordinate toward or away from a center."""
+    return center + (value - center) * amount
+
+
 def collect_profile_points(profile):
     """Collect key local-space points used to estimate profile bounds."""
     points = [
@@ -287,6 +297,18 @@ def mesh_world_bounds(mesh_object, context, robust=True, top_percentile=88.0):
     return bounds_from_points(points)
 
 
+def robust_bounds_from_points(points, robust=True, top_percentile=88.0):
+    """Return bounds from points, optionally trimming extreme silhouettes."""
+    if robust and len(points) >= 16:
+        xs = [point.x for point in points]
+        ys = [point.y for point in points]
+        zs = [point.z for point in points]
+        min_corner = Vector((percentile(xs, 1.0), percentile(ys, 1.0), min(zs)))
+        max_corner = Vector((percentile(xs, 99.0), percentile(ys, 99.0), percentile(zs, top_percentile)))
+        return min_corner, max_corner, max_corner - min_corner
+    return bounds_from_points(points)
+
+
 def fitted_scale(mesh_size, profile_size, forward_axis, fit_amount):
     """Return a uniform scale that fits a profile inside mesh bounds."""
     if forward_axis in {"POS_Y", "NEG_Y"}:
@@ -317,6 +339,160 @@ def forward_axis_rotation(forward_axis):
 def rotate_z(point, angle):
     """Rotate a vector around the Z axis."""
     return Vector((point.x * cos(angle) - point.y * sin(angle), point.x * sin(angle) + point.y * cos(angle), point.z))
+
+
+def mesh_points_in_fit_space(mesh_object, context, forward_axis):
+    """Return mesh points in a +Y-forward fitting space."""
+    angle = forward_axis_rotation(forward_axis)
+    return [rotate_z(point, -angle) for point in mesh_world_points(mesh_object, context)], angle
+
+
+def build_landmark_profile(points, profile_key, fit_amount, robust=True, top_percentile=88.0):
+    """Build a temporary profile from mesh-derived body and foot landmarks."""
+    local_min, local_max, local_size = robust_bounds_from_points(points, robust, top_percentile)
+    length = max(local_size.y, 0.001)
+    width = max(local_size.x, 0.001)
+    height = max(local_size.z, 0.001)
+
+    ground_z = local_min.z
+    body_low_z = ground_z + height * 0.24
+    body_high_z = ground_z + height * 0.84
+    torso_points = [point for point in points if body_low_z <= point.z <= body_high_z]
+    if len(torso_points) < 12:
+        torso_points = points
+
+    torso_y_values = [point.y for point in torso_points]
+    body_y_min = percentile(torso_y_values, 18.0)
+    body_y_max = percentile(torso_y_values, 82.0)
+    if body_y_max - body_y_min < length * 0.35:
+        body_y_min = local_min.y + length * 0.24
+        body_y_max = local_max.y - length * 0.18
+
+    body_center_y = (body_y_min + body_y_max) * 0.5
+    body_y_min = inset(body_y_min, body_center_y, fit_amount)
+    body_y_max = inset(body_y_max, body_center_y, fit_amount)
+    body_length = max(body_y_max - body_y_min, length * 0.2)
+
+    body_points = [
+        point
+        for point in points
+        if body_y_min <= point.y <= body_y_max and ground_z + height * 0.16 <= point.z <= ground_z + height * 0.96
+    ]
+    if len(body_points) < 12:
+        body_points = torso_points
+    body_z_values = [point.z for point in body_points]
+    belly_z = percentile(body_z_values, 10.0)
+    back_z = percentile(body_z_values, 86.0)
+    body_depth = max(back_z - belly_z, height * 0.25)
+
+    style = {
+        "STOCKY": {"spine": 0.74, "spine_floor": 0.70, "neck_raise": 0.11, "leg_side": 0.30},
+        "MEDIUM": {"spine": 0.70, "spine_floor": 0.66, "neck_raise": 0.13, "leg_side": 0.28},
+        "HORSE": {"spine": 0.78, "spine_floor": 0.72, "neck_raise": 0.20, "leg_side": 0.24},
+    }.get(profile_key, {"spine": 0.70, "spine_floor": 0.66, "neck_raise": 0.13, "leg_side": 0.28})
+
+    spine_z = max(belly_z + body_depth * style["spine"], ground_z + height * style["spine_floor"])
+    pelvis_z = spine_z - height * 0.025
+    mid_spine_z = spine_z + height * 0.015
+    chest_z = spine_z + height * 0.035
+
+    low_points = [
+        point
+        for point in points
+        if point.z <= ground_z + height * 0.18 and local_min.y + length * 0.06 <= point.y <= local_max.y - length * 0.06
+    ]
+    if len(low_points) >= 8:
+        low_y_values = [point.y for point in low_points]
+        rear_foot_y = percentile(low_y_values, 24.0)
+        front_foot_y = percentile(low_y_values, 76.0)
+    else:
+        rear_foot_y = body_y_min + body_length * 0.14
+        front_foot_y = body_y_max - body_length * 0.14
+
+    rear_foot_y = clamp(rear_foot_y, local_min.y + length * 0.08, body_center_y - body_length * 0.08)
+    front_foot_y = clamp(front_foot_y, body_center_y + body_length * 0.08, local_max.y - length * 0.08)
+    rear_foot_y = inset(rear_foot_y, body_center_y, fit_amount)
+    front_foot_y = inset(front_foot_y, body_center_y, fit_amount)
+
+    full_tail_y = inset(local_min.y, body_center_y, min(fit_amount, 1.15))
+    full_head_y = inset(local_max.y, body_center_y, min(fit_amount, 1.15))
+    x_center = (local_min.x + local_max.x) * 0.5
+    leg_width = max(width * style["leg_side"] * fit_amount, height * 0.055)
+    root_width = max(width * 0.34, height * 0.08)
+    foot_z = ground_z + height * 0.035
+
+    def rel(x, y, z):
+        return (x - x_center, y - body_center_y, z - ground_z)
+
+    neck_y = body_y_max + max((full_head_y - body_y_max) * 0.32, body_length * 0.10)
+    head_y = body_y_max + max((full_head_y - body_y_max) * 0.78, body_length * 0.22)
+    neck_z = chest_z + height * style["neck_raise"]
+    head_z = neck_z - height * 0.06
+
+    front_shoulder_y = clamp(front_foot_y + body_length * 0.03, body_y_max - body_length * 0.18, body_y_max + body_length * 0.08)
+    front_elbow_y = front_foot_y - body_length * 0.06
+    front_wrist_y = front_foot_y + body_length * 0.02
+    front_toe_y = front_foot_y + body_length * 0.10
+
+    rear_hip_y = clamp(rear_foot_y - body_length * 0.08, body_y_min - body_length * 0.08, body_y_min + body_length * 0.18)
+    rear_stifle_y = rear_foot_y + body_length * 0.13
+    rear_hock_y = rear_foot_y + body_length * 0.02
+    rear_toe_y = rear_foot_y + body_length * 0.12
+
+    front_leg = {
+        "anchor_parent": "chest",
+        "guide": "scapula",
+        "guide_head": rel(x_center, body_y_max - body_length * 0.06, chest_z),
+        "guide_tail": rel(x_center, front_shoulder_y, belly_z + body_depth * 0.42),
+        "upper_head": rel(x_center, front_shoulder_y, belly_z + body_depth * 0.42),
+        "upper_tail": rel(x_center, front_elbow_y, ground_z + height * 0.36),
+        "lower_tail": rel(x_center, front_wrist_y, ground_z + height * 0.13),
+        "foot_tail": rel(x_center, front_toe_y, foot_z),
+        "pole": rel(x_center, front_foot_y - body_length * 0.32, ground_z + height * 0.42),
+    }
+    rear_leg = {
+        "anchor_parent": "pelvis",
+        "guide": "hip",
+        "guide_head": rel(x_center, body_y_min + body_length * 0.06, pelvis_z),
+        "guide_tail": rel(x_center, rear_hip_y, belly_z + body_depth * 0.50),
+        "upper_head": rel(x_center, rear_hip_y, belly_z + body_depth * 0.50),
+        "upper_tail": rel(x_center, rear_stifle_y, ground_z + height * 0.38),
+        "lower_tail": rel(x_center, rear_hock_y, ground_z + height * 0.14),
+        "foot_tail": rel(x_center, rear_toe_y, foot_z),
+        "pole": rel(x_center, rear_foot_y - body_length * 0.36, ground_z + height * 0.44),
+    }
+
+    label = QUADRUPED_PROFILES.get(profile_key, QUADRUPED_PROFILES["MEDIUM"])["label"]
+    profile = {
+        "label": f"{label} Fit",
+        "root": {"head": rel(x_center - root_width, body_center_y, ground_z), "tail": rel(x_center + root_width, body_center_y, ground_z)},
+        "body": {"head": rel(x_center, body_y_min, pelvis_z), "tail": rel(x_center, body_y_max, chest_z)},
+        "spine": [
+            ("pelvis", rel(x_center, body_y_min, pelvis_z), rel(x_center, body_y_min + body_length * 0.32, spine_z)),
+            (
+                "spine_01",
+                rel(x_center, body_y_min + body_length * 0.32, spine_z),
+                rel(x_center, body_y_min + body_length * 0.64, mid_spine_z),
+            ),
+            ("chest", rel(x_center, body_y_min + body_length * 0.64, mid_spine_z), rel(x_center, body_y_max, chest_z)),
+        ],
+        "neck": {"head": rel(x_center, body_y_max, chest_z), "tail": rel(x_center, neck_y, neck_z)},
+        "head": {"head": rel(x_center, neck_y, neck_z), "tail": rel(x_center, head_y, head_z)},
+        "tail": [
+            ("tail_01", rel(x_center, body_y_min, pelvis_z), rel(x_center, body_y_min - max((body_y_min - full_tail_y) * 0.45, body_length * 0.08), pelvis_z)),
+            (
+                "tail_02",
+                rel(x_center, body_y_min - max((body_y_min - full_tail_y) * 0.45, body_length * 0.08), pelvis_z),
+                rel(x_center, body_y_min - max((body_y_min - full_tail_y) * 0.82, body_length * 0.14), pelvis_z - height * 0.06),
+            ),
+        ],
+        "leg_width_front": leg_width,
+        "leg_width_rear": leg_width,
+        "front_leg": front_leg,
+        "rear_leg": rear_leg,
+        "control_scale": max(height, length * 0.35),
+    }
+    return profile, Vector((x_center, body_center_y, ground_z)), local_min, local_max, local_size
 
 
 def active_mesh(context):
@@ -464,12 +640,13 @@ def create_standard_quadruped(
     add_ik_constraints=True,
     display_type="STICK",
     profile_key="MEDIUM",
+    profile_override=None,
 ):
     """Create and return a named quadruped armature object."""
     if context.object and context.object.mode != "OBJECT":
         bpy.ops.object.mode_set(mode="OBJECT")
     resolved_profile_key = profile_key if profile_key in QUADRUPED_PROFILES else "MEDIUM"
-    profile = QUADRUPED_PROFILES[resolved_profile_key]
+    profile = profile_override or QUADRUPED_PROFILES[resolved_profile_key]
 
     armature_data = bpy.data.armatures.new(name)
     armature_object = bpy.data.objects.new(name, armature_data)
@@ -768,37 +945,37 @@ class QWG_OT_create_fitted_quadruped_armature(Operator):
             self.report({"ERROR"}, "Select a mesh to fit.")
             return {"CANCELLED"}
 
-        mesh_min, mesh_max, mesh_size = mesh_world_bounds(
-            mesh_object,
-            context,
+        fit_points, angle = mesh_points_in_fit_space(mesh_object, context, self.mesh_forward_axis)
+        _, _, mesh_size = robust_bounds_from_points(
+            fit_points,
             robust=self.robust_bounds,
             top_percentile=self.top_percentile,
         )
-        profile_key = profile_from_mesh(mesh_size, self.mesh_forward_axis) if self.body_profile == "AUTO" else self.body_profile
-        profile = QUADRUPED_PROFILES.get(profile_key, QUADRUPED_PROFILES["MEDIUM"])
-        profile_min, profile_max, profile_size = bounds_from_points(collect_profile_points(profile))
-        scale = fitted_scale(mesh_size, profile_size, self.mesh_forward_axis, self.fit_amount)
-        angle = forward_axis_rotation(self.mesh_forward_axis)
+        profile_key = profile_from_mesh(mesh_size, "POS_Y") if self.body_profile == "AUTO" else self.body_profile
+        profile, origin, _, _, _ = build_landmark_profile(
+            fit_points,
+            profile_key,
+            self.fit_amount,
+            robust=self.robust_bounds,
+            top_percentile=self.top_percentile,
+        )
 
         armature_name = self.armature_name.strip() or f"{mesh_object.name}_QWalk_Rig"
         armature = create_standard_quadruped(
             context,
             armature_name,
-            scale,
+            1.0,
             self.add_ik_constraints,
             self.display_type,
             profile_key,
+            profile_override=profile,
         )
         armature["qwg_fit_mesh"] = mesh_object.name
         armature["qwg_fit_profile_requested"] = self.body_profile
 
-        local_center = (profile_min + profile_max) * 0.5 * scale
-        rotated_center = rotate_z(local_center, angle)
-        target_center = (mesh_min + mesh_max) * 0.5
+        rotated_origin = rotate_z(origin, angle)
         armature.rotation_euler.z = angle
-        armature.location.x = target_center.x - rotated_center.x
-        armature.location.y = target_center.y - rotated_center.y
-        armature.location.z = mesh_min.z - profile_min.z * scale
+        armature.location = rotated_origin
 
         store_base_pose(armature)
         if self.map_after_create:
