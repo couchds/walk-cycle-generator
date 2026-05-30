@@ -90,12 +90,13 @@ When a guide armature is selected, the QWalk panel shows the active guide bone l
 
 The older **Create Fitted Quadruped Armature** button still creates a direct one-shot fitted armature, but it is best treated as a quick draft rather than the main workflow.
 
-Binding defaults to QWalk's nearest-bone weights, which creates real vertex groups and an Armature modifier without relying on Blender's heat weighting. The QWalk binder biases torso, head, and belly vertices away from accidental leg influence, then prunes tiny leftover weights that can make horns, mouths, and loose belly fur follow the moving feet. Use the operator redo panel if you want to try Blender Automatic instead. For production results, expect to clean up vertex weights around shoulders, hips, hooves, horns, and dense fur.
+Binding defaults to QWalk's nearest-bone weights, which creates real vertex groups and an Armature modifier without relying on Blender's heat weighting. The QWalk binder biases torso, head, and belly vertices away from accidental leg influence, keeps central underbody vertices on the body instead of a left or right leg, limits each vertex to a plausible leg column before blending, then prunes weak leftover weights that can make horns, mouths, loose belly fur, or the wrong leg follow the moving feet. Use the operator redo panel if you want to try Blender Automatic instead. For production results, expect to clean up vertex weights around shoulders, hips, hooves, horns, and dense fur.
 
 ## Notes
 
 - **Replace Keys** removes existing location/Euler rotation keys on mapped bones only inside the selected frame range.
 - **Set Base Pose** stores the current mapped transforms as the neutral pose used by future generations.
+- IK walk motion is clamped per leg from the rest chain length so compact fitted rigs are not overdriven by the default stride and lift values.
 - IK mode only moves target/control bones. Your rig's IK constraints still determine the final limb bending.
 - FK mode is intentionally generic. It gives a usable blocking pass, but animal-specific polish usually still needs animator cleanup.
 - `FK Swing`, `FK Lift`, and `FK Bend` only apply when the current mode resolves to FK. The panel disables them when the mapped rig is using IK.

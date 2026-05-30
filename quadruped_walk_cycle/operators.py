@@ -236,20 +236,27 @@ def binding_metrics(segments):
             "max_y": max(box["ys"]),
             "min_z": min(box["zs"]),
             "max_z": max(box["zs"]),
+            "center_x": (min(box["xs"]) + max(box["xs"])) * 0.5,
+            "center_y": (min(box["ys"]) + max(box["ys"])) * 0.5,
         }
 
     body_box = None
+    midline_x = sum(point.x for point in points) / len(points)
     if torso_points:
+        midline_x = sum(point.x for point in torso_points) / len(torso_points)
         body_box = {
             "min_y": min(point.y for point in torso_points),
             "max_y": max(point.y for point in torso_points),
         }
+    leg_side_distances = [abs(box["center_x"] - midline_x) for box in leg_boxes.values()]
 
     return {
         "body_box": body_box,
         "ground_z": ground_z,
         "height": height,
         "leg_boxes": leg_boxes,
+        "midline_x": midline_x,
+        "min_leg_side_distance": min(leg_side_distances) if leg_side_distances else 0.0,
     }
 
 
@@ -266,6 +273,87 @@ def in_body_band(point, metrics):
         body_box["min_y"] - pad_y <= point.y <= body_box["max_y"] + pad_y
         and point.z >= belly_floor
     )
+
+
+def in_torso_span(point, metrics):
+    """Return whether a point sits between the main pelvis and chest landmarks."""
+    body_box = metrics.get("body_box")
+    if not body_box:
+        return False
+
+    height = metrics.get("height", 1.0)
+    pad_y = max(height * 0.08, 0.05)
+    return body_box["min_y"] - pad_y <= point.y <= body_box["max_y"] + pad_y
+
+
+def in_midline_torso(point, metrics):
+    """Return whether a point is central enough to prefer body weights over leg weights."""
+    side_distance = metrics.get("min_leg_side_distance", 0.0)
+    if side_distance <= 0.0 or not in_torso_span(point, metrics):
+        return False
+    return abs(point.x - metrics.get("midline_x", 0.0)) <= side_distance * 0.58
+
+
+def closest_leg_prefix(point, metrics):
+    """Return the closest plausible leg column for a point."""
+    if in_midline_torso(point, metrics):
+        return None
+
+    height = metrics.get("height", 1.0)
+    pad_x = max(height * 0.08, 0.04)
+    pad_y = max(height * 0.10, 0.05)
+    pad_z = max(height * 0.10, 0.05)
+    best_prefix = None
+    best_score = None
+
+    for prefix, box in metrics.get("leg_boxes", {}).items():
+        if point.z > box["max_z"] + pad_z:
+            continue
+
+        x_gap = max(box["min_x"] - pad_x - point.x, point.x - box["max_x"] - pad_x, 0.0)
+        y_gap = max(box["min_y"] - pad_y - point.y, point.y - box["max_y"] - pad_y, 0.0)
+        z_gap = max(box["min_z"] - pad_z - point.z, 0.0)
+        if y_gap > height * 0.22 or x_gap > height * 0.18:
+            continue
+
+        center_bias = abs(point.x - box["center_x"]) * 0.25 + abs(point.y - box["center_y"]) * 0.10
+        score = x_gap * 1.5 + y_gap + z_gap * 0.5 + center_bias
+        if best_score is None or score < best_score:
+            best_prefix = prefix
+            best_score = score
+
+    return best_prefix
+
+
+def filtered_binding_distances(point, raw_distances, closest_body_distance, metrics):
+    """Limit candidate bones before distance biasing and weight normalization."""
+    assigned_leg = closest_leg_prefix(point, metrics)
+    if assigned_leg:
+        box = metrics.get("leg_boxes", {}).get(assigned_leg, {})
+        height = metrics.get("height", 1.0)
+        upper_blend_z = box.get("max_z", point.z) - height * 0.18
+        allowed = []
+        for distance, segment in raw_distances:
+            prefix = leg_prefix(segment[0])
+            if prefix == assigned_leg:
+                allowed.append((distance, segment))
+            elif not prefix and point.z >= upper_blend_z and segment[0] in TORSO_BONE_NAMES:
+                allowed.append((distance, segment))
+        return allowed or raw_distances
+
+    if in_torso_span(point, metrics):
+        if in_midline_torso(point, metrics):
+            allowed = [(distance, segment) for distance, segment in raw_distances if not leg_prefix(segment[0])]
+            return allowed or raw_distances
+
+        allowed = []
+        for distance, segment in raw_distances:
+            prefix = leg_prefix(segment[0])
+            if not prefix or distance <= closest_body_distance * 0.45:
+                allowed.append((distance, segment))
+        return allowed or raw_distances
+
+    return raw_distances
 
 
 def adjusted_binding_distance(point, segment, raw_distance, closest_body_distance, metrics):
@@ -322,20 +410,21 @@ def bind_with_nearest_bone_weights(mesh, armature, max_influences):
         raw_distances = [(distance_to_segment(point, head, tail), (name, head, tail)) for name, head, tail in segments]
         body_distances = [distance for distance, segment in raw_distances if not leg_prefix(segment[0])]
         closest_body_distance = min(body_distances) if body_distances else float("inf")
+        candidate_distances = filtered_binding_distances(point, raw_distances, closest_body_distance, metrics)
         scored = sorted(
             (
                 (
                     adjusted_binding_distance(point, segment, distance, closest_body_distance, metrics),
                     segment[0],
                 )
-                for distance, segment in raw_distances
+                for distance, segment in candidate_distances
             ),
             key=lambda item: item[0],
         )[:influence_count]
         weights = [(name, 1.0 / max(distance * distance, 0.0001)) for distance, name in scored]
         if weights:
             strongest = max(weight for _, weight in weights)
-            weights = [(name, weight) for name, weight in weights if weight >= strongest * 0.12]
+            weights = [(name, weight) for name, weight in weights if weight >= strongest * 0.20]
         total = sum(weight for _, weight in weights) or 1.0
         for name, weight in weights:
             groups[name].add([vertex.index], weight / total, "REPLACE")
@@ -436,6 +525,7 @@ class QWG_OT_generate_walk_cycle(Operator):
             "object_location": stored_object_location(armature),
             "object_rotation": stored_object_rotation(armature),
             "bones": {},
+            "leg_limits": {},
         }
 
         for name in mapped_bones(settings):
@@ -447,7 +537,24 @@ class QWG_OT_generate_walk_cycle(Operator):
                     "rotation": stored_rotation(bone, bone.rotation_euler),
                 }
 
+        for leg in LEG_ORDER:
+            length = self._leg_chain_length(armature, settings, leg)
+            if length > 0.0:
+                baselines["leg_limits"][leg] = {
+                    "forward": max(length * 0.18, 0.01),
+                    "lift": max(length * 0.10, 0.005),
+                }
+
         return baselines
+
+    def _leg_chain_length(self, armature, settings, leg):
+        """Return the rest length of a mapped FK leg chain."""
+        length = 0.0
+        for field in FK_FIELDS[leg]:
+            bone = armature.data.bones.get(getattr(settings, field))
+            if bone:
+                length += bone.length
+        return length
 
     def _animate_body(self, armature, settings, gait, baselines, frame, cycle_pos):
         """Key body bob, sway, pitch, and roll for one frame."""
@@ -489,6 +596,10 @@ class QWG_OT_generate_walk_cycle(Operator):
         bone_name = getattr(settings, IK_FIELDS[leg])
         bone = armature.pose.bones[bone_name]
         baseline = baselines["bones"][bone_name]["location"]
+        limits = baselines.get("leg_limits", {}).get(leg)
+        if limits:
+            forward = max(-limits["forward"], min(limits["forward"], forward))
+            lift = min(limits["lift"], lift)
         offset = axis_offset(settings.forward_axis, forward, settings.side_axis, 0.0, settings.up_axis, lift)
         local_offset = pose_location_for_armature_offset(bone, offset)
 
