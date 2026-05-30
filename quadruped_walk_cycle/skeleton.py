@@ -1481,6 +1481,10 @@ def create_standard_quadruped(
             constraint.pole_angle = -pi / 2.0
             constraint.chain_count = 3
             constraint.iterations = 24
+            if hasattr(constraint, "use_rotation"):
+                constraint.use_rotation = True
+            if hasattr(constraint, "use_stretch"):
+                constraint.use_stretch = False
 
     assign_control_shapes(context, armature_object, scale, profile.get("control_scale", 1.0))
     assign_bone_groups(armature_object)

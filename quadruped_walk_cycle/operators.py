@@ -461,6 +461,7 @@ class QWG_OT_generate_walk_cycle(Operator):
             self.report({"ERROR"}, "No usable IK targets or FK leg chains were mapped.")
             return {"CANCELLED"}
 
+        self._prepare_ik_constraints(armature, settings, mode_by_leg)
         armature.animation_data_create()
         data_paths = data_paths_for_cleanup(settings, mode_by_leg)
 
@@ -519,6 +520,25 @@ class QWG_OT_generate_walk_cycle(Operator):
 
         self.report({"INFO"}, f"Generated {gait.label.lower()} cycle on {armature.name}.")
         return {"FINISHED"}
+
+    def _prepare_ik_constraints(self, armature, settings, mode_by_leg):
+        """Keep generated IK feet oriented by their target controls."""
+        for leg, mode in mode_by_leg.items():
+            if mode != "IK":
+                continue
+            foot_name = getattr(settings, FK_FIELDS[leg][2])
+            foot = pose_bone(armature, foot_name)
+            if not foot:
+                continue
+            for constraint in foot.constraints:
+                if constraint.type != "IK":
+                    continue
+                if constraint.name != "QWalk IK" and constraint.target != armature:
+                    continue
+                if hasattr(constraint, "use_rotation"):
+                    constraint.use_rotation = True
+                if hasattr(constraint, "use_stretch"):
+                    constraint.use_stretch = False
 
     def _capture_baselines(self, armature, settings):
         """Read stable base transforms for object and mapped bones."""

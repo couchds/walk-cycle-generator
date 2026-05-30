@@ -98,6 +98,7 @@ Binding defaults to QWalk's nearest-bone weights, which creates real vertex grou
 - **Set Base Pose** stores the current mapped transforms as the neutral pose used by future generations.
 - IK walk motion is clamped per leg from the rest chain length so compact fitted rigs are not overdriven by the default stride and lift values.
 - **Compact Walk** is the default for goat, sheep, ram, and other stocky rigs. It uses a grounded four-beat order, shorter rear reach, lower foot lift, and reduced body bob compared with the generic walk.
+- Generated IK constraints use target rotation so hoof/end-effector bones stay more controlled instead of freely twisting through the IK solve.
 - IK mode only moves target/control bones. Your rig's IK constraints still determine the final limb bending.
 - FK mode is intentionally generic. It gives a usable blocking pass, but animal-specific polish usually still needs animator cleanup.
 - `FK Swing`, `FK Lift`, and `FK Bend` only apply when the current mode resolves to FK. The panel disables them when the mapped rig is using IK.
