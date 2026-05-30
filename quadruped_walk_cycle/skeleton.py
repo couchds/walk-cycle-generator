@@ -81,6 +81,47 @@ QUADRUPED_PROFILES = {
         },
         "control_scale": 1.0,
     },
+    "STOCKY": {
+        "label": "Stocky Quadruped",
+        "root": {"head": (-0.28, 0.0, 0.0), "tail": (0.28, 0.0, 0.0)},
+        "body": {"head": (0.0, -0.82, 1.12), "tail": (0.0, 0.74, 1.22)},
+        "spine": [
+            ("pelvis", (0.0, -0.82, 1.08), (0.0, -0.38, 1.14)),
+            ("spine_01", (0.0, -0.38, 1.14), (0.0, 0.18, 1.20)),
+            ("chest", (0.0, 0.18, 1.20), (0.0, 0.78, 1.22)),
+        ],
+        "neck": {"head": (0.0, 0.78, 1.22), "tail": (0.0, 1.06, 1.38)},
+        "head": {"head": (0.0, 1.06, 1.38), "tail": (0.0, 1.34, 1.28)},
+        "tail": [
+            ("tail_01", (0.0, -0.82, 1.08), (0.0, -1.02, 1.06)),
+            ("tail_02", (0.0, -1.02, 1.06), (0.0, -1.18, 0.98)),
+        ],
+        "leg_width_front": 0.34,
+        "leg_width_rear": 0.36,
+        "front_leg": {
+            "anchor_parent": "chest",
+            "guide": "scapula",
+            "guide_head": (0.0, 0.58, 1.20),
+            "guide_tail": (0.0, 0.44, 0.86),
+            "upper_head": (0.0, 0.44, 0.86),
+            "upper_tail": (0.0, 0.38, 0.58),
+            "lower_tail": (0.0, 0.50, 0.18),
+            "foot_tail": (0.0, 0.70, 0.05),
+            "pole": (0.0, -0.18, 0.58),
+        },
+        "rear_leg": {
+            "anchor_parent": "pelvis",
+            "guide": "hip",
+            "guide_head": (0.0, -0.76, 1.08),
+            "guide_tail": (0.0, -0.90, 0.82),
+            "upper_head": (0.0, -0.90, 0.82),
+            "upper_tail": (0.0, -0.80, 0.55),
+            "lower_tail": (0.0, -0.60, 0.18),
+            "foot_tail": (0.0, -0.40, 0.05),
+            "pole": (0.0, -1.30, 0.56),
+        },
+        "control_scale": 1.05,
+    },
     "HORSE": {
         "label": "Horse",
         "root": {"head": (-0.34, 0.0, 0.0), "tail": (0.34, 0.0, 0.0)},
@@ -140,6 +181,30 @@ def profile_items():
     return tuple((key, value["label"], "") for key, value in QUADRUPED_PROFILES.items())
 
 
+def fit_profile_items():
+    """Return enum items for mesh-fitted profile selection."""
+    return (("AUTO", "Auto", "Choose a profile from the mesh proportions"),) + profile_items()
+
+
+def profile_from_mesh(mesh_size, forward_axis):
+    """Choose a broad body profile from mesh proportions."""
+    if forward_axis in {"POS_Y", "NEG_Y"}:
+        mesh_length = mesh_size.y
+        mesh_width = mesh_size.x
+    else:
+        mesh_length = mesh_size.x
+        mesh_width = mesh_size.y
+
+    length_to_height = mesh_length / max(mesh_size.z, 0.001)
+    width_to_height = mesh_width / max(mesh_size.z, 0.001)
+
+    if length_to_height >= 2.45:
+        return "HORSE"
+    if length_to_height <= 2.15 or width_to_height >= 0.62:
+        return "STOCKY"
+    return "MEDIUM"
+
+
 def collect_profile_points(profile):
     """Collect key local-space points used to estimate profile bounds."""
     points = [
@@ -181,9 +246,44 @@ def bounds_from_points(points):
     return min_corner, max_corner, max_corner - min_corner
 
 
-def mesh_world_bounds(mesh_object):
+def percentile(values, amount):
+    """Return an interpolated percentile from a list of values."""
+    ordered = sorted(values)
+    if not ordered:
+        return 0.0
+    if len(ordered) == 1:
+        return ordered[0]
+
+    position = (len(ordered) - 1) * (amount / 100.0)
+    lower = int(position)
+    upper = min(lower + 1, len(ordered) - 1)
+    blend = position - lower
+    return ordered[lower] * (1.0 - blend) + ordered[upper] * blend
+
+
+def mesh_world_points(mesh_object, context):
+    """Return evaluated mesh vertices in world space."""
+    depsgraph = context.evaluated_depsgraph_get()
+    evaluated = mesh_object.evaluated_get(depsgraph)
+    mesh = evaluated.to_mesh()
+    try:
+        if mesh and mesh.vertices:
+            return [evaluated.matrix_world @ vertex.co for vertex in mesh.vertices]
+    finally:
+        evaluated.to_mesh_clear()
+    return [mesh_object.matrix_world @ Vector(corner) for corner in mesh_object.bound_box]
+
+
+def mesh_world_bounds(mesh_object, context, robust=True, top_percentile=88.0):
     """Return world-space bounds for a mesh object."""
-    points = [mesh_object.matrix_world @ Vector(corner) for corner in mesh_object.bound_box]
+    points = mesh_world_points(mesh_object, context)
+    if robust and len(points) >= 16:
+        xs = [point.x for point in points]
+        ys = [point.y for point in points]
+        zs = [point.z for point in points]
+        min_corner = Vector((percentile(xs, 1.0), percentile(ys, 1.0), min(zs)))
+        max_corner = Vector((percentile(xs, 99.0), percentile(ys, 99.0), percentile(zs, top_percentile)))
+        return min_corner, max_corner, max_corner - min_corner
     return bounds_from_points(points)
 
 
@@ -368,10 +468,13 @@ def create_standard_quadruped(
     """Create and return a named quadruped armature object."""
     if context.object and context.object.mode != "OBJECT":
         bpy.ops.object.mode_set(mode="OBJECT")
-    profile = QUADRUPED_PROFILES.get(profile_key, QUADRUPED_PROFILES["MEDIUM"])
+    resolved_profile_key = profile_key if profile_key in QUADRUPED_PROFILES else "MEDIUM"
+    profile = QUADRUPED_PROFILES[resolved_profile_key]
 
     armature_data = bpy.data.armatures.new(name)
     armature_object = bpy.data.objects.new(name, armature_data)
+    armature_object["qwg_profile"] = resolved_profile_key
+    armature_object["qwg_profile_label"] = profile["label"]
     context.collection.objects.link(armature_object)
 
     bpy.ops.object.select_all(action="DESELECT")
@@ -597,9 +700,9 @@ class QWG_OT_create_fitted_quadruped_armature(Operator):
     )
     body_profile: EnumProperty(
         name="Profile",
-        description="Proportion template for the generated quadruped",
-        items=profile_items(),
-        default="MEDIUM",
+        description="Proportion template, or Auto to choose from mesh proportions",
+        items=fit_profile_items(),
+        default="AUTO",
     )
     mesh_forward_axis: EnumProperty(
         name="Mesh Forward",
@@ -618,6 +721,18 @@ class QWG_OT_create_fitted_quadruped_armature(Operator):
         default=0.88,
         min=0.1,
         max=1.5,
+    )
+    robust_bounds: BoolProperty(
+        name="Robust Bounds",
+        description="Use vertex percentiles so horns, manes, fur, and tails do not dominate the fit",
+        default=True,
+    )
+    top_percentile: FloatProperty(
+        name="Top Percentile",
+        description="Upper vertical percentile used when Robust Bounds is enabled",
+        default=88.0,
+        min=60.0,
+        max=100.0,
     )
     add_ik_constraints: BoolProperty(
         name="Add IK Constraints",
@@ -653,8 +768,14 @@ class QWG_OT_create_fitted_quadruped_armature(Operator):
             self.report({"ERROR"}, "Select a mesh to fit.")
             return {"CANCELLED"}
 
-        profile = QUADRUPED_PROFILES.get(self.body_profile, QUADRUPED_PROFILES["MEDIUM"])
-        mesh_min, mesh_max, mesh_size = mesh_world_bounds(mesh_object)
+        mesh_min, mesh_max, mesh_size = mesh_world_bounds(
+            mesh_object,
+            context,
+            robust=self.robust_bounds,
+            top_percentile=self.top_percentile,
+        )
+        profile_key = profile_from_mesh(mesh_size, self.mesh_forward_axis) if self.body_profile == "AUTO" else self.body_profile
+        profile = QUADRUPED_PROFILES.get(profile_key, QUADRUPED_PROFILES["MEDIUM"])
         profile_min, profile_max, profile_size = bounds_from_points(collect_profile_points(profile))
         scale = fitted_scale(mesh_size, profile_size, self.mesh_forward_axis, self.fit_amount)
         angle = forward_axis_rotation(self.mesh_forward_axis)
@@ -666,8 +787,10 @@ class QWG_OT_create_fitted_quadruped_armature(Operator):
             scale,
             self.add_ik_constraints,
             self.display_type,
-            self.body_profile,
+            profile_key,
         )
+        armature["qwg_fit_mesh"] = mesh_object.name
+        armature["qwg_fit_profile_requested"] = self.body_profile
 
         local_center = (profile_min + profile_max) * 0.5 * scale
         rotated_center = rotate_z(local_center, angle)
@@ -681,5 +804,5 @@ class QWG_OT_create_fitted_quadruped_armature(Operator):
         if self.map_after_create:
             apply_standard_mapping(context.scene.qwg_settings)
 
-        self.report({"INFO"}, f"Created fitted quadruped armature for {mesh_object.name}.")
+        self.report({"INFO"}, f"Created fitted {profile['label']} armature for {mesh_object.name}.")
         return {"FINISHED"}

@@ -50,7 +50,7 @@ If the motion goes sideways, backwards, or downward, change the axis settings be
 
 ## Generated Starter Armature
 
-Click **Create Quadruped Armature** to generate a simple +Y-forward, Z-up quadruped rig. The default display is **Stick**, which reads more like a rig than a blocky proxy animal. The operator has a **Profile** option; `Medium Quadruped` is the default, and `Horse` provides a longer body, neck, and limb template.
+Click **Create Quadruped Armature** to generate a simple +Y-forward, Z-up quadruped rig. The default display is **Stick**, which reads more like a rig than a blocky proxy animal. The operator has a **Profile** option; `Medium Quadruped` is the default, `Stocky Quadruped` is better for compact goat/sheep/ram-like bodies, and `Horse` provides a longer body, neck, and limb template.
 
 The generated rig includes:
 
@@ -66,11 +66,13 @@ New generated rigs open in Pose Mode with the main animation controls selected. 
 
 ## Mesh Fitting Phase 1
 
-Select a mesh and click **Create Fitted Quadruped Armature** to scale and place a generated armature inside the mesh's world-space bounds. This first phase uses explicit assumptions rather than leg detection:
+Select a mesh and click **Create Fitted Quadruped Armature** to scale and place a generated armature inside the mesh's world-space bounds. This first phase uses broad mesh proportions rather than leg detection:
 
-- Choose `Profile` in the operator redo panel.
+- Leave `Profile` set to `Auto` for the add-on to choose Medium, Stocky, or Horse proportions from the mesh bounds.
+- Choose a specific `Profile` in the operator redo panel when you already know the animal type.
 - Choose `Mesh Forward` based on the direction from tail toward head.
 - Adjust `Fit` if the rig should sit tighter or looser inside the mesh.
+- Leave `Robust Bounds` enabled for meshes with horns, manes, fur, bulky tails, or other silhouettes that should not dominate the vertical fit.
 
 This does not bind the mesh yet. It only creates a fitted armature.
 
