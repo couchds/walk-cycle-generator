@@ -805,7 +805,7 @@ def centered_point(point, origin):
     return (0.0, point.y - origin.y, point.z - origin.z)
 
 
-def build_profile_from_guides(guide):
+def build_profile_from_guides(guide, symmetrize_legs=True):
     """Build a generated rig profile from an edited QWalk guide armature."""
     pelvis_head, pelvis_tail = guide_bone_pair(guide, GUIDE_SPINE_BONES["pelvis"])
     spine_head, spine_tail = guide_bone_pair(guide, GUIDE_SPINE_BONES["spine"])
@@ -922,14 +922,15 @@ def build_profile_from_guides(guide):
         "leg_width_rear": leg_width("rl", "rr"),
         "front_leg": front_leg,
         "rear_leg": rear_leg,
-        "leg_overrides": {
+        "control_scale": control_scale,
+    }
+    if not symmetrize_legs:
+        profile["leg_overrides"] = {
             "fl": exact_leg_profile("fl", chest_tail, 0.22),
             "fr": exact_leg_profile("fr", chest_tail, 0.22),
             "rl": exact_leg_profile("rl", pelvis_head, 0.24),
             "rr": exact_leg_profile("rr", pelvis_head, 0.24),
-        },
-        "control_scale": control_scale,
-    }
+        }
     return profile, origin
 
 
@@ -1535,6 +1536,11 @@ class QWG_OT_create_armature_from_guides(Operator):
         description="Hide the guide armature after generating the final rig",
         default=True,
     )
+    symmetrize_legs: BoolProperty(
+        name="Mirror Leg Pairs",
+        description="Use one clean side-profile for each left/right leg pair",
+        default=True,
+    )
 
     @classmethod
     def poll(cls, context):
@@ -1551,7 +1557,7 @@ class QWG_OT_create_armature_from_guides(Operator):
             bpy.ops.object.mode_set(mode="OBJECT")
 
         try:
-            profile, origin = build_profile_from_guides(guide)
+            profile, origin = build_profile_from_guides(guide, self.symmetrize_legs)
         except ValueError as error:
             self.report({"ERROR"}, str(error))
             return {"CANCELLED"}

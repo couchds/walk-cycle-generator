@@ -78,7 +78,7 @@ Select a mesh and click **Create Fitting Guides** to create an editable QWalk gu
 
 The guide initializer still estimates the ground, main torso span, upper back surface, foot contact areas, and broad body type. Those guesses are only a starting point. The final generated armature comes from the edited guide bones, which is more reliable than trying to infer hidden shoulder, hip, knee, and ankle positions from a surface mesh alone.
 
-Each generated leg follows its matching guide chain directly. For example, `front_left_upper`, `front_left_lower`, and `front_left_foot` are built from `qwg_guide_front_left_upper`, `qwg_guide_front_left_lower`, and `qwg_guide_front_left_foot` rather than from an averaged left/right template.
+By default, **Generate Armature From Guides** mirrors each left/right leg pair from one clean side-profile. This avoids crossed duplicate leg chains when fitting from side view. Disable **Mirror Leg Pairs** in the operator redo panel only when you intentionally want asymmetric left/right limb placement.
 
 The guide armature is hidden by default after **Generate Armature From Guides** so the viewport shows the final rig cleanly. Unhide the guide object in the Outliner if you want to edit and regenerate.
 
