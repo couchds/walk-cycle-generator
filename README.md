@@ -71,10 +71,18 @@ Select a mesh and click **Create Fitting Guides** to create an editable QWalk gu
 1. Create fitting guides from the mesh.
 2. Edit the guide bones in Blender Edit Mode until the skeleton landmarks sit where you want them.
 3. Click **Generate Armature From Guides** to create the final QWalk rig.
+4. Select the mesh, Shift-select the final QWalk rig so the rig is active, then click **Bind Selected Meshes To Rig**.
+5. Generate the walk cycle on the final rig.
 
 The guide initializer still estimates the ground, main torso span, upper back surface, foot contact areas, and broad body type. Those guesses are only a starting point. The final generated armature comes from the edited guide bones, which is more reliable than trying to infer hidden shoulder, hip, knee, and ankle positions from a surface mesh alone.
 
+Each generated leg follows its matching guide chain directly. For example, `front_left_upper`, `front_left_lower`, and `front_left_foot` are built from `qwg_guide_front_left_upper`, `qwg_guide_front_left_lower`, and `qwg_guide_front_left_foot` rather than from an averaged left/right template.
+
+The guide armature is hidden by default after **Generate Armature From Guides** so the viewport shows the final rig cleanly. Unhide the guide object in the Outliner if you want to edit and regenerate.
+
 The older **Create Fitted Quadruped Armature** button still creates a direct one-shot fitted armature, but it is best treated as a quick draft rather than the main workflow.
+
+Binding uses Blender's automatic armature weights. For production results, expect to clean up vertex weights around shoulders, hips, hooves, horns, and dense fur.
 
 ## Notes
 

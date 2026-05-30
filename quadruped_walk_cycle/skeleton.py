@@ -706,6 +706,14 @@ def create_guide_bone(edit_bones, name, head, tail, parent=None, connected=False
     return bone
 
 
+def leg_profile_point(profile, leg, leg_profile, point_key, x):
+    """Return an exact per-leg point or mirrored shared profile point."""
+    override = profile.get("leg_overrides", {}).get(leg)
+    if override:
+        return override[point_key]
+    return mirrored_point(leg_profile[point_key], x)
+
+
 def create_guide_armature(context, name, profile, origin, angle, source_mesh_name="", profile_key="MEDIUM"):
     """Create an editable QWalk guide armature from a fitted profile."""
     if context.object and context.object.mode != "OBJECT":
@@ -879,6 +887,22 @@ def build_profile_from_guides(guide):
         "pole": centered(Vector((origin.x, rear_upper_tail.y - body_length * 0.24, rear_upper_tail.z))),
     }
 
+    def exact_leg_profile(leg, anchor_point, pole_factor):
+        """Return a per-leg profile from one edited guide chain."""
+        upper_head, upper_tail = guide_bone_pair(guide, GUIDE_LEG_BONES[leg]["upper"])
+        _, lower_tail = guide_bone_pair(guide, GUIDE_LEG_BONES[leg]["lower"])
+        _, foot_tail = guide_bone_pair(guide, GUIDE_LEG_BONES[leg]["foot"])
+        pole = Vector((upper_tail.x, upper_tail.y - body_length * pole_factor, upper_tail.z))
+        return {
+            "guide_head": rel(anchor_point),
+            "guide_tail": rel(upper_head),
+            "upper_head": rel(upper_head),
+            "upper_tail": rel(upper_tail),
+            "lower_tail": rel(lower_tail),
+            "foot_tail": rel(foot_tail),
+            "pole": rel(pole),
+        }
+
     profile = {
         "label": f"{label} Guide",
         "root": {"head": (-root_width, 0.0, 0.0), "tail": (root_width, 0.0, 0.0)},
@@ -898,6 +922,12 @@ def build_profile_from_guides(guide):
         "leg_width_rear": leg_width("rl", "rr"),
         "front_leg": front_leg,
         "rear_leg": rear_leg,
+        "leg_overrides": {
+            "fl": exact_leg_profile("fl", chest_tail, 0.22),
+            "fr": exact_leg_profile("fr", chest_tail, 0.22),
+            "rl": exact_leg_profile("rl", pelvis_head, 0.24),
+            "rr": exact_leg_profile("rr", pelvis_head, 0.24),
+        },
         "control_scale": control_scale,
     }
     return profile, origin
@@ -1107,13 +1137,14 @@ def create_standard_quadruped(
         is_front = leg.startswith("f")
         leg_profile = profile["front_leg"] if is_front else profile["rear_leg"]
         x = side * (profile["leg_width_front"] if is_front else profile["leg_width_rear"])
+        point = lambda key: leg_profile_point(profile, leg, leg_profile, key, x)
 
         guide_name = f"{names['upper'].rsplit('_', 1)[0]}_{leg_profile['guide']}"
         guide = add_edit_bone(
             bones,
             guide_name,
-            mirrored_point(leg_profile["guide_head"], x),
-            mirrored_point(leg_profile["guide_tail"], x),
+            point("guide_head"),
+            point("guide_tail"),
             scale,
             leg_parents[leg],
         )
@@ -1121,8 +1152,8 @@ def create_standard_quadruped(
         upper = add_edit_bone(
             bones,
             names["upper"],
-            mirrored_point(leg_profile["upper_head"], x),
-            mirrored_point(leg_profile["upper_tail"], x),
+            point("upper_head"),
+            point("upper_tail"),
             scale,
             guide,
             True,
@@ -1130,8 +1161,8 @@ def create_standard_quadruped(
         lower = add_edit_bone(
             bones,
             names["lower"],
-            mirrored_point(leg_profile["upper_tail"], x),
-            mirrored_point(leg_profile["lower_tail"], x),
+            point("upper_tail"),
+            point("lower_tail"),
             scale,
             upper,
             True,
@@ -1139,26 +1170,29 @@ def create_standard_quadruped(
         add_edit_bone(
             bones,
             names["foot"],
-            mirrored_point(leg_profile["lower_tail"], x),
-            mirrored_point(leg_profile["foot_tail"], x),
+            point("lower_tail"),
+            point("foot_tail"),
             scale,
             lower,
             True,
         )
+        foot_point = Vector(point("foot_tail"))
+        foot_span = max((foot_point - Vector(point("lower_tail"))).length * 0.45, 0.08)
         add_edit_bone(
             bones,
             names["ik"],
-            mirrored_point((0.0, leg_profile["foot_tail"][1] - 0.11, leg_profile["foot_tail"][2]), x),
-            mirrored_point((0.0, leg_profile["foot_tail"][1] + 0.11, leg_profile["foot_tail"][2]), x),
+            (foot_point.x, foot_point.y - foot_span, foot_point.z),
+            (foot_point.x, foot_point.y + foot_span, foot_point.z),
             scale,
             root,
             deform=False,
         )
+        pole_point = Vector(point("pole"))
         add_edit_bone(
             bones,
             names["pole"],
-            mirrored_point((0.0, leg_profile["pole"][1], leg_profile["pole"][2]), x - 0.07 * side),
-            mirrored_point((0.0, leg_profile["pole"][1], leg_profile["pole"][2]), x + 0.07 * side),
+            (pole_point.x - 0.07 * side, pole_point.y, pole_point.z),
+            (pole_point.x + 0.07 * side, pole_point.y, pole_point.z),
             scale,
             root,
             deform=False,
@@ -1232,7 +1266,6 @@ class QWG_OT_create_quadruped_armature(Operator):
         description="Fill QWalk bone mapping fields after creating the armature",
         default=True,
     )
-
     def execute(self, context):
         """Create the standard armature and optionally map it for QWalk."""
         armature = create_standard_quadruped(
@@ -1319,7 +1352,6 @@ class QWG_OT_create_fitted_quadruped_armature(Operator):
         description="Fill QWalk bone mapping fields after creating the armature",
         default=True,
     )
-
     @classmethod
     def poll(cls, context):
         """Enable the operator when a mesh is active or selected."""
@@ -1493,6 +1525,11 @@ class QWG_OT_create_armature_from_guides(Operator):
         description="Fill QWalk bone mapping fields after creating the armature",
         default=True,
     )
+    hide_guides_after_create: BoolProperty(
+        name="Hide Guides",
+        description="Hide the guide armature after generating the final rig",
+        default=True,
+    )
 
     @classmethod
     def poll(cls, context):
@@ -1534,6 +1571,12 @@ class QWG_OT_create_armature_from_guides(Operator):
         store_base_pose(armature)
         if self.map_after_create:
             apply_standard_mapping(context.scene.qwg_settings)
+        if self.hide_guides_after_create:
+            guide.hide_set(True)
+            guide.hide_render = True
+            guide.select_set(False)
+            armature.select_set(True)
+            context.view_layer.objects.active = armature
 
         self.report({"INFO"}, f"Generated QWalk armature from {guide.name}.")
         return {"FINISHED"}

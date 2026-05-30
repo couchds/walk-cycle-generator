@@ -41,6 +41,10 @@ class QWG_PT_panel(Panel):
         row.operator("qwg.auto_map", icon="VIEWZOOM")
         row.operator("qwg.generate_walk_cycle", icon="ARMATURE_DATA")
 
+        bind_row = layout.row()
+        bind_row.enabled = self._has_selected_mesh(context)
+        bind_row.operator("qwg.bind_selected_meshes", icon="MOD_ARMATURE")
+
         layout.operator("qwg.clear_cycle_keys", icon="TRASH")
         layout.operator("qwg.set_base_pose", icon="PINNED")
 

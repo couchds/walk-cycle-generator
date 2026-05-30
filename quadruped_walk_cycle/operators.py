@@ -1,5 +1,6 @@
 import math
 
+import bpy
 from bpy.types import Operator
 
 from .bone_mapping import find_best_bone
@@ -56,6 +57,60 @@ class QWG_OT_auto_map(Operator):
             setattr(settings, foot, find_best_bone(names, leg=leg, kind="foot", minimum=10))
 
         self.report({"INFO"}, "Auto-mapping complete. Review fields before generating.")
+        return {"FINISHED"}
+
+
+class QWG_OT_bind_selected_meshes(Operator):
+    bl_idname = "qwg.bind_selected_meshes"
+    bl_label = "Bind Selected Meshes To Rig"
+    bl_description = "Bind selected mesh objects to the active QWalk armature using Blender automatic weights"
+    bl_options = {"REGISTER", "UNDO"}
+
+    @classmethod
+    def poll(cls, context):
+        """Enable when an armature is active and at least one mesh is selected."""
+        return active_armature(context) is not None and any(obj.type == "MESH" for obj in context.selected_objects)
+
+    def execute(self, context):
+        """Parent selected meshes to the active armature with automatic weights."""
+        armature = active_armature(context)
+        meshes = [obj for obj in context.selected_objects if obj.type == "MESH"]
+        if not armature or not meshes:
+            self.report({"ERROR"}, "Select mesh object(s), then Shift-select the QWalk rig so it is active.")
+            return {"CANCELLED"}
+        if armature.get("qwg_is_guide"):
+            self.report({"ERROR"}, "Bind to the generated QWalk rig, not the guide armature.")
+            return {"CANCELLED"}
+
+        if context.object and context.object.mode != "OBJECT":
+            bpy.ops.object.mode_set(mode="OBJECT")
+
+        bound_count = 0
+        for mesh in meshes:
+            bpy.ops.object.select_all(action="DESELECT")
+            mesh.select_set(True)
+            armature.select_set(True)
+            context.view_layer.objects.active = armature
+
+            try:
+                result = bpy.ops.object.parent_set(type="ARMATURE_AUTO")
+            except RuntimeError as error:
+                self.report({"ERROR"}, f"Automatic weights failed for {mesh.name}: {error}")
+                continue
+
+            if result == {"FINISHED"}:
+                bound_count += 1
+
+        bpy.ops.object.select_all(action="DESELECT")
+        for mesh in meshes:
+            mesh.select_set(True)
+        armature.select_set(True)
+        context.view_layer.objects.active = armature
+
+        if bound_count == 0:
+            return {"CANCELLED"}
+
+        self.report({"INFO"}, f"Bound {bound_count} mesh object(s) to {armature.name}.")
         return {"FINISHED"}
 
 

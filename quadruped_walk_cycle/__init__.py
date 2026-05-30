@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Quadruped Walk Cycle Generator",
     "author": "couchds",
-    "version": (0, 4, 0),
+    "version": (0, 4, 3),
     "blender": (3, 6, 0),
     "location": "View3D > Sidebar > QWalk",
     "description": "Generate looping quadruped walk cycles for an armature using IK controls or FK leg chains.",
@@ -32,6 +32,7 @@ for module_name in MODULE_NAMES:
 
 from .operators import (
     QWG_OT_auto_map,
+    QWG_OT_bind_selected_meshes,
     QWG_OT_clear_cycle_keys,
     QWG_OT_generate_walk_cycle,
     QWG_OT_set_base_pose,
@@ -53,6 +54,7 @@ CLASSES = (
     QWG_OT_create_armature_from_guides,
     QWG_OT_create_fitted_quadruped_armature,
     QWG_OT_auto_map,
+    QWG_OT_bind_selected_meshes,
     QWG_OT_generate_walk_cycle,
     QWG_OT_clear_cycle_keys,
     QWG_OT_set_base_pose,
